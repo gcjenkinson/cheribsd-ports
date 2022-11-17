@@ -1,0 +1,27 @@
+--- configure.ac.orig	2022-11-16 14:04:13.224278000 +0000
++++ configure.ac	2022-11-17 12:09:35.925236000 +0000
+@@ -619,7 +619,6 @@
+     gcc_64_cflags_optlist="arch tune"
+     gcc_testlist="gcc-arm-umodsi"
+     gcc_64_testlist=""
+-    CALLING_CONVENTIONS_OBJS='arm32call.lo arm32check.lo'
+     CALLING_CONVENTIONS_OBJS_64=""
+     cclist_64="gcc cc"
+     any_32_testlist="sizeof-void*-4"
+@@ -770,7 +769,16 @@
+ 	gcc_cflags_neon="-mfpu=neon"
+ 	gcc_cflags_tune="-mtune=xgene1"
+ 	;;
++      aarch64c)
++        abilist="purecap"
++	path_64="arm64"
++	gcc_cflags_arch="-march=morello+c64"
++	gcc_cflags_neon=""
++	gcc_cflags_tune=""
++        gmp_asm_syntax_testing=no
++	;;
+       aarch64*)
++        CALLING_CONVENTIONS_OBJS='arm32call.lo arm32check.lo'
+         abilist="64 32"
+ 	path="arm/v7a/cora15/neon arm/neon arm/v7a/cora15 arm/v6t2 arm/v6 arm/v5 arm"
+ 	path_64="arm64"
