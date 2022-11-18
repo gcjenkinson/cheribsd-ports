@@ -1,0 +1,11 @@
+--- configfsf.sub.orig	2022-11-16 14:08:32.274443000 +0000
++++ configfsf.sub	2022-11-15 11:38:56.465564000 +0000
+@@ -1158,7 +1158,7 @@
+ 		case $cpu in
+ 			1750a | 580 \
+ 			| a29k \
+-			| aarch64 | aarch64_be \
++			| aarch64 | aarch64c | aarch64_be \
+ 			| abacus \
+ 			| alpha | alphaev[4-8] | alphaev56 | alphaev6[78] \
+ 			| alpha64 | alpha64ev[4-8] | alpha64ev56 | alpha64ev6[78] \
