@@ -1,0 +1,11 @@
+--- gio/gioenumtypes.c.template.orig	2022-11-23 14:29:18.106705000 +0000
++++ gio/gioenumtypes.c.template	2022-11-23 14:29:34.067823000 +0000
+@@ -13,7 +13,7 @@
+ GType
+ @enum_name@_get_type (void)
+ {
+-  static gsize static_g_define_type_id = 0;
++  static gintptr static_g_define_type_id = 0;
+ 
+   if (g_once_init_enter (&static_g_define_type_id))
+     {

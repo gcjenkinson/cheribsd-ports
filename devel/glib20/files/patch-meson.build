@@ -1,11 +1,33 @@
---- meson.build.orig	2021-02-11 04:24:55.280943200 -0800
-+++ meson.build	2021-02-18 15:34:48.476370000 -0800
-@@ -2287,6 +2287,8 @@
+--- meson.build.orig	2022-11-21 16:20:50.438714000 +0000
++++ meson.build	2022-11-22 14:18:12.365323000 +0000
+@@ -1617,6 +1617,13 @@
+   glibconfig_conf.set_quoted('guintptr_format', int64_m + 'u')
+   glibconfig_conf.set('glib_gpi_cast', '(gint64)')
+   glibconfig_conf.set('glib_gpui_cast', '(guint64)')
++elif voidp_size == 16 
++  glibconfig_conf.set('glib_intptr_type_define', 'intptr_t')
++  glibconfig_conf.set_quoted('gintptr_modifier', 'P')
++  glibconfig_conf.set_quoted('gintptr_format', 'Pi')
++  glibconfig_conf.set_quoted('guintptr_format', 'Pu')
++  glibconfig_conf.set('glib_gpi_cast', '(intptr_t)')
++  glibconfig_conf.set('glib_gpui_cast', '(uintptr_t)')
+ else
+   error('Could not determine size of void *')
+ endif
+@@ -1882,7 +1889,6 @@
+     error('GLib must be built with -march=i486 or later.')
+   endif
+ endif
+-glibconfig_conf.set('G_ATOMIC_LOCK_FREE', have_atomic_lock_free)
+ 
+ # === Threads ===
+ 
+@@ -2373,6 +2379,8 @@
+ 
  test_timeout = 60
  test_timeout_slow = 180
- 
-+libutil = [cc.find_library('util', required : true)]
 +
++libutil = [cc.find_library('util', required : true)]
+ 
  pkg = import('pkgconfig')
  windows = import('windows')
- subdir('glib')
