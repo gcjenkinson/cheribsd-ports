@@ -7472,3 +7472,21 @@ index 0db6a51ebb2..5ab6969cfda 100644
  
  // This is a v8::PageAllocator implementation that decorates provided page
  // allocator object with page tracking functionality.
+--- third_party/googletest/src/googletest/include/gtest/gtest-matchers.h.orig	2023-08-08 09:39:04.712094000 +0000
++++ third_party/googletest/src/googletest/include/gtest/gtest-matchers.h	2023-08-08 10:12:15.305268000 +0000
+@@ -48,6 +48,7 @@
+ #include "gtest/gtest-printers.h"
+ #include "gtest/internal/gtest-internal.h"
+ #include "gtest/internal/gtest-port.h"
++#include "src/common/cheri.h"
+
+ // MSVC warning C5046 is new as of VS2017 version 15.8.
+ #if defined(_MSC_VER) && _MSC_VER >= 1915
+@@ -86,6 +87,7 @@
+   // is NULL.
+   template <typename T>
+   MatchResultListener& operator<<(const T& x) {
++    using cheri::operator<<;
+     if (stream_ != nullptr) *stream_ << x;
+     return *this;
+   }
