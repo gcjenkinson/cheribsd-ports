@@ -2923,7 +2923,7 @@ index 58d14602908..c6ff9c50e84 100644
  
  template <typename V>
 diff --git src/compiler/backend/arm64/code-generator-arm64.cc src/compiler/backend/arm64/code-generator-arm64.cc
-index b382e7f415e..402637f553f 100644
+index b382e7f415e..96bf06f1b72 100644
 --- src/compiler/backend/arm64/code-generator-arm64.cc
 +++ src/compiler/backend/arm64/code-generator-arm64.cc
 @@ -636,7 +636,11 @@ void CodeGenerator::AssembleTailCallAfterGap(Instruction* instr,
@@ -3023,7 +3023,21 @@ index b382e7f415e..402637f553f 100644
    }
  
    CPURegList saves =
-@@ -3115,7 +3151,11 @@ void CodeGenerator::AssembleConstructFrame() {
+@@ -3081,8 +3117,13 @@ void CodeGenerator::AssembleConstructFrame() {
+   if (frame_access_state()->has_frame()) {
+     // Link the frame
+     if (call_descriptor->IsJSFunctionCall()) {
++#if defined(__CHERI_PURE_CAPABILITY__)
++      static_assert(InterpreterFrameConstants::kFixedFrameSize % 16 == 8);
++      DCHECK_EQ(required_slots % 2, 1);
++#else
+       static_assert(InterpreterFrameConstants::kFixedFrameSize % 16 == 8);
+       DCHECK_EQ(required_slots % 2, 1);
++#endif
+       __ Prologue();
+       // Update required_slots count since we have just claimed one extra slot.
+       static_assert(TurboAssembler::kExtraSlotClaimedByPrologue == 1);
+@@ -3115,7 +3156,11 @@ void CodeGenerator::AssembleConstructFrame() {
      }
  
  #if V8_ENABLE_WEBASSEMBLY
@@ -3035,7 +3049,7 @@ index b382e7f415e..402637f553f 100644
        // For WebAssembly functions with big frames we have to do the stack
        // overflow check before we construct the frame. Otherwise we may not
        // have enough space on the stack to call the runtime for the stack
-@@ -3124,14 +3164,22 @@ void CodeGenerator::AssembleConstructFrame() {
+@@ -3124,14 +3169,22 @@ void CodeGenerator::AssembleConstructFrame() {
        // If the frame is bigger than the stack, we throw the stack overflow
        // exception unconditionally. Thereby we can avoid the integer overflow
        // check in the condition code.
@@ -3058,7 +3072,7 @@ index b382e7f415e..402637f553f 100644
          __ Cmp(sp, scratch);
          __ B(hs, &done);
        }
-@@ -3432,7 +3480,11 @@ void CodeGenerator::MoveToTempLocation(InstructionOperand* source) {
+@@ -3432,7 +3485,11 @@ void CodeGenerator::MoveToTempLocation(InstructionOperand* source) {
            frame_access_state_->frame()->GetTotalFrameSlotCount() - 1;
        int sp_delta = frame_access_state_->sp_delta();
        int temp_slot = last_frame_slot_id + sp_delta + new_slots;
@@ -3070,7 +3084,7 @@ index b382e7f415e..402637f553f 100644
        AllocatedOperand temp(LocationOperand::STACK_SLOT, rep, temp_slot);
        AssembleMove(source, &temp);
      }
-@@ -3480,7 +3532,11 @@ void CodeGenerator::MoveTempLocationTo(InstructionOperand* dest,
+@@ -3480,7 +3537,11 @@ void CodeGenerator::MoveTempLocationTo(InstructionOperand* dest,
        int temp_slot = last_frame_slot_id + sp_delta + new_slots;
        AllocatedOperand temp(LocationOperand::STACK_SLOT, rep, temp_slot);
        AssembleMove(&temp, dest);
@@ -3595,6 +3609,26 @@ index cf7202949e4..f9b55a7e396 100644
  
  #ifdef ENABLE_DISASSEMBLER
    i::StdoutStream os;
+diff --git src/execution/arm64/frame-constants-arm64.cc src/execution/arm64/frame-constants-arm64.cc
+index 96f6f25e757..0fa8bc5b95a 100644
+--- src/execution/arm64/frame-constants-arm64.cc
++++ src/execution/arm64/frame-constants-arm64.cc
+@@ -20,11 +20,15 @@ Register JavaScriptFrame::context_register() { return cp; }
+ Register JavaScriptFrame::constant_pool_pointer_register() { UNREACHABLE(); }
+ 
+ int UnoptimizedFrameConstants::RegisterStackSlotCount(int register_count) {
++#ifdef __CHERI_PURE_CAPABILITY__
++  return register_count;
++#else
+   static_assert(InterpreterFrameConstants::kFixedFrameSize % 16 == 8);
+   // Interpreter frame header size is not 16-bytes aligned, so we'll need at
+   // least one register slot to make the frame a multiple of 16 bytes. The code
+   // below is equivalent to "RoundUp(register_count - 1, 2) + 1".
+   return RoundDown(register_count, 2) + 1;
++#endif
+ }
+ 
+ int BuiltinContinuationFrameConstants::PaddingSlotCount(int register_count) {
 diff --git src/execution/arm64/frame-constants-arm64.h src/execution/arm64/frame-constants-arm64.h
 index 80bcda9de27..fd917c5b939 100644
 --- src/execution/arm64/frame-constants-arm64.h
@@ -4771,7 +4805,7 @@ index b0908839ea4..a49e1a29ed2 100644
        return result;
      }
 diff --git src/heap/slot-set.h src/heap/slot-set.h
-index 7da8108f671..0e4eccef500 100644
+index 7da8108f671..befa0293178 100644
 --- src/heap/slot-set.h
 +++ src/heap/slot-set.h
 @@ -87,7 +87,11 @@ class PossiblyEmptyBuckets {
@@ -4810,9 +4844,15 @@ index 7da8108f671..0e4eccef500 100644
    }
  
    FRIEND_TEST(PossiblyEmptyBucketsTest, WordsForBuckets);
-@@ -155,8 +167,15 @@ class SlotSet {
+@@ -153,10 +165,21 @@ class SlotSet {
+     // faster access in the write barrier. The number of buckets is needed for
+     // calculating the size of this data structure.
      size_t buckets_size = buckets * sizeof(Bucket*);
++#if defined(__CHERI_PURE_CAPABILITY__)
++    size_t size = RoundUp(kInitialBucketsSize, alignof(max_align_t)) + buckets_size;
++#else
      size_t size = kInitialBucketsSize + buckets_size;
++#endif
      void* allocation = AlignedAlloc(size, kSystemPointerSize);
 +#if defined(__CHERI_PURE_CAPABILITY__)
 +    SlotSet* slot_set = reinterpret_cast<SlotSet*>(
@@ -4826,7 +4866,7 @@ index 7da8108f671..0e4eccef500 100644
      DCHECK(
          IsAligned(reinterpret_cast<uintptr_t>(slot_set), kSystemPointerSize));
  #ifdef DEBUG
-@@ -486,7 +505,11 @@ class SlotSet {
+@@ -486,7 +509,11 @@ class SlotSet {
                int bit_offset = base::bits::CountTrailingZeros(cell);
                uint32_t bit_mask = 1u << bit_offset;
                Address slot = (cell_offset + bit_offset) << kTaggedSizeLog2;
@@ -4838,7 +4878,7 @@ index 7da8108f671..0e4eccef500 100644
                  ++in_bucket_count;
                } else {
                  mask |= bit_mask;
-@@ -593,7 +616,7 @@ class SlotSet {
+@@ -593,7 +620,7 @@ class SlotSet {
  
  #ifdef DEBUG
    size_t* initial_buckets() { return reinterpret_cast<size_t*>(this) - 1; }
@@ -5336,7 +5376,7 @@ index 16e8d5be0c0..f1cbbce18bf 100644
  }
  
 diff --git src/objects/code.h src/objects/code.h
-index 89b244be3f1..a949315a5d5 100644
+index 89b244be3f1..a9ab4b00e46 100644
 --- src/objects/code.h
 +++ src/objects/code.h
 @@ -73,19 +73,15 @@ class CodeDataContainer : public HeapObject {
@@ -5361,7 +5401,7 @@ index 89b244be3f1..a949315a5d5 100644
    // Cached value of code().InstructionStart().
    // Available only when V8_EXTERNAL_CODE_SPACE is defined.
 -  DECL_GETTER(code_entry_point, Address)
-+  Address code_entry_point() const;
++  inline Address code_entry_point() const;
  
    inline void SetCodeAndEntryPoint(
        Isolate* isolate_for_sandbox, Code code,
@@ -5374,7 +5414,7 @@ index 89b244be3f1..a949315a5d5 100644
    V(kCodeEntryPointOffset,                                          \
      V8_EXTERNAL_CODE_SPACE_BOOL ? kExternalPointerSize : 0)         \
    V(kFlagsOffset, V8_EXTERNAL_CODE_SPACE_BOOL ? kUInt16Size : 0)    \
-@@ -206,6 +200,16 @@ class CodeDataContainer : public HeapObject {
+@@ -206,6 +200,12 @@ class CodeDataContainer : public HeapObject {
    DEFINE_FIELD_OFFSET_CONSTANTS(HeapObject::kHeaderSize, CODE_DATA_FIELDS)
  #undef CODE_DATA_FIELDS
  
@@ -5382,16 +5422,12 @@ index 89b244be3f1..a949315a5d5 100644
 +  template <typename T>
 +  using ExternalCodeField =
 +      TaggedField<T, kCodeOffset, ExternalCodeCompressionScheme>;
-+
-+  template <typename T>
-+  using ExternalCodeEntryPointField =
-+      TaggedField<T, kCodeEntryPointOffset, ExternalCodeCompressionScheme>;
 +#endif  // V8_EXTERNAL_CODE_SPACE
 +
    class BodyDescriptor;
  
    // Flags layout.
-@@ -632,6 +636,44 @@ class Code : public HeapObject {
+@@ -632,6 +632,44 @@ class Code : public HeapObject {
    class OptimizedCodeIterator;
  
    // Layout description.
@@ -5436,7 +5472,7 @@ index 89b244be3f1..a949315a5d5 100644
  #define CODE_FIELDS(V)                                                        \
    V(kRelocationInfoOffset, kTaggedSize)                                       \
    V(kDeoptimizationDataOrInterpreterDataOffset, kTaggedSize)                  \
-@@ -660,6 +702,7 @@ class Code : public HeapObject {
+@@ -660,6 +698,7 @@ class Code : public HeapObject {
    /* the Code object header. */                                               \
    V(kOptionalPaddingOffset, CODE_POINTER_PADDING(kOptionalPaddingOffset))     \
    V(kHeaderSize, 0)
@@ -5444,7 +5480,7 @@ index 89b244be3f1..a949315a5d5 100644
  
    DEFINE_FIELD_OFFSET_CONSTANTS(HeapObject::kHeaderSize, CODE_FIELDS)
  #undef CODE_FIELDS
-@@ -667,8 +710,14 @@ class Code : public HeapObject {
+@@ -667,8 +706,14 @@ class Code : public HeapObject {
    // This documents the amount of free space we have in each Code object header
    // due to padding for code alignment.
  #if V8_TARGET_ARCH_ARM64
@@ -5459,7 +5495,7 @@ index 89b244be3f1..a949315a5d5 100644
  #elif V8_TARGET_ARCH_MIPS64
    static constexpr int kHeaderPaddingSize = 20;
  #elif V8_TARGET_ARCH_LOONG64
-@@ -862,7 +911,7 @@ class CodeLookupResult {
+@@ -862,7 +907,7 @@ class CodeLookupResult {
    // Helper method, coverts the successful lookup result to Code object.
    // It's not safe to be used from GC because conversion to Code might perform
    // a map check.
@@ -5468,7 +5504,7 @@ index 89b244be3f1..a949315a5d5 100644
  
    // Helper method, coverts the successful lookup result to CodeT object.
    // It's not safe to be used from GC because conversion to CodeT might perform
-@@ -907,12 +956,11 @@ class Code::OptimizedCodeIterator {
+@@ -907,12 +952,11 @@ class Code::OptimizedCodeIterator {
  inline CodeT ToCodeT(Code code);
  inline Handle<CodeT> ToCodeT(Handle<Code> code, Isolate* isolate);
  inline Code FromCodeT(CodeT code);
