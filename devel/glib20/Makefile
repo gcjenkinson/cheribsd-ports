@@ -68,6 +68,11 @@ MESON_ARGS+=	-Diconv=libc
 MESON_ARGS+=	-Diconv=external
 .endif
 
+.if ${ARCH} == aarch64c
+CONFIGURE_ENV+= CC_LD='lld'
+CONFIGURE_ENV+= CXX_LD='lld'
+.endif
+
 pre-configure-FAM_ALTBACKEND-on:
 	@${REINPLACE_CMD} -e 's|kqueue-helper.c|kqueue_fnm.c|g ; \
 		s|.*kqueue-missing.c.*||g ; \
