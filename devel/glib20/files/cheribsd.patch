@@ -1,5 +1,5 @@
 diff --git gio/gdbus-2.0/codegen/codegen.py gio/gdbus-2.0/codegen/codegen.py
-index d8d9a8521..5d35d8493 100644
+index d8d9a8521..c13ce56ac 100644
 --- gio/gdbus-2.0/codegen/codegen.py
 +++ gio/gdbus-2.0/codegen/codegen.py
 @@ -4918,7 +4918,7 @@ class CodeGenerator:
@@ -11,8 +11,23 @@ index d8d9a8521..5d35d8493 100644
              "  static GHashTable *lookup_hash;\n"
              "  GType ret;\n"
              "\n"
+@@ -4931,12 +4931,12 @@ class CodeGenerator:
+         )
+         for i in self.ifaces:
+             self.outfile.write(
+-                '      g_hash_table_insert (lookup_hash, (gpointer) "%s", GSIZE_TO_POINTER (%sTYPE_%s_PROXY));\n'
++                '      g_hash_table_insert (lookup_hash, (gpointer) "%s", GUINTPTR_TO_GPOINTER (%sTYPE_%s_PROXY));\n'
+                 % (i.name, i.ns_upper, i.name_upper)
+             )
+         self.outfile.write("      g_once_init_leave (&once_init_value, 1);\n" "    }\n")
+         self.outfile.write(
+-            "  ret = (GType) GPOINTER_TO_SIZE (g_hash_table_lookup (lookup_hash, interface_name));\n"
++            "  ret = (GType) GPOINTER_TO_GINTPTR (g_hash_table_lookup (lookup_hash, interface_name));\n"
+             "  if (ret == (GType) 0)\n"
+             "    ret = G_TYPE_DBUS_PROXY;\n"
+         )
 diff --git gio/gdbuserror.c gio/gdbuserror.c
-index 4cc542c7e..b6fa1232e 100644
+index 4cc542c7e..a1c95c286 100644
 --- gio/gdbuserror.c
 +++ gio/gdbuserror.c
 @@ -160,7 +160,7 @@ GQuark
@@ -29,12 +44,12 @@ index 4cc542c7e..b6fa1232e 100644
  void
  g_dbus_error_register_error_domain (const gchar           *error_domain_quark_name,
 -                                    volatile gsize        *quark_volatile,
-+                                    volatile gintptr	  *quark_volatile,
++                                    volatile guintptr     *quark_volatile,
                                      const GDBusErrorEntry *entries,
                                      guint                  num_entries)
  {
 -  gsize *quark;
-+  gintptr *quark;
++  guintptr *quark;
  
    g_return_if_fail (error_domain_quark_name != NULL);
    g_return_if_fail (quark_volatile != NULL);
@@ -43,12 +58,12 @@ index 4cc542c7e..b6fa1232e 100644
    /* Drop the volatile qualifier, which should never have been on the argument
     * in the first place. */
 -  quark = (gsize *) quark_volatile;
-+  quark = (gintptr *) quark_volatile;
++  quark = (guintptr *) quark_volatile;
  
    if (g_once_init_enter (quark))
      {
 diff --git gio/gdbuserror.h gio/gdbuserror.h
-index 35a156cb2..f42d863ac 100644
+index 35a156cb2..b0f988437 100644
 --- gio/gdbuserror.h
 +++ gio/gdbuserror.h
 @@ -81,7 +81,7 @@ gboolean g_dbus_error_unregister_error      (GQuark                 error_domain
@@ -56,7 +71,7 @@ index 35a156cb2..f42d863ac 100644
  GLIB_AVAILABLE_IN_ALL
  void     g_dbus_error_register_error_domain (const gchar           *error_domain_quark_name,
 -                                             volatile gsize        *quark_volatile,
-+                                             volatile gintptr      *quark_volatile,
++                                             volatile guintptr     *quark_volatile,
                                               const GDBusErrorEntry *entries,
                                               guint                  num_entries);
  
@@ -74,7 +89,7 @@ index 0d6f5e65c..98589e3b1 100644
    GVariant *properties;
    GList *interface_added_signals, *l;
 diff --git gio/gdbusprivate.c gio/gdbusprivate.c
-index 0b8630ab2..8ffad4340 100644
+index 0b8630ab2..0bcd55252 100644
 --- gio/gdbusprivate.c
 +++ gio/gdbusprivate.c
 @@ -292,7 +292,7 @@ gdbus_shared_thread_func (gpointer user_data)
@@ -82,7 +97,7 @@ index 0b8630ab2..8ffad4340 100644
  _g_dbus_shared_thread_ref (void)
  {
 -  static gsize shared_thread_data = 0;
-+  static gintptr shared_thread_data = 0;
++  static guintptr shared_thread_data = 0;
    SharedThreadData *ret;
  
    if (g_once_init_enter (&shared_thread_data))
@@ -91,7 +106,7 @@ index 0b8630ab2..8ffad4340 100644
                                     data);
        /* We can cast between gsize and gpointer safely */
 -      g_once_init_leave (&shared_thread_data, (gsize) data);
-+      g_once_init_leave (&shared_thread_data, (gintptr) data);
++      g_once_init_leave (&shared_thread_data, (guintptr) data);
      }
  
    ret = (SharedThreadData*) shared_thread_data;
@@ -100,12 +115,12 @@ index 0b8630ab2..8ffad4340 100644
  _g_dbus_initialize (void)
  {
 -  static gsize initialized = 0;
-+  static gintptr initialized = 0;
++  static guintptr initialized = 0;
  
    if (g_once_init_enter (&initialized))
      {
 diff --git gio/gfileenumerator.c gio/gfileenumerator.c
-index e0ed9720e..4093a2a5a 100644
+index e0ed9720e..fe1aad452 100644
 --- gio/gfileenumerator.c
 +++ gio/gfileenumerator.c
 @@ -636,7 +636,7 @@ g_file_enumerator_iterate (GFileEnumerator  *direnum,
@@ -113,12 +128,34 @@ index e0ed9720e..4093a2a5a 100644
    static GQuark cached_info_quark;
    static GQuark cached_child_quark;
 -  static gsize quarks_initialized;
-+  static gintptr quarks_initialized;
++  static guintptr quarks_initialized;
  
    g_return_val_if_fail (direnum != NULL, FALSE);
    g_return_val_if_fail (out_info != NULL || out_child != NULL, FALSE);
+diff --git gio/ginputstream.c gio/ginputstream.c
+index 8fda2693c..1406bf918 100644
+--- gio/ginputstream.c
++++ gio/ginputstream.c
+@@ -1443,7 +1443,7 @@ skip_async_thread (GTask        *task,
+                    GCancellable *cancellable)
+ {
+   GInputStream *stream = source_object;
+-  gsize count = GPOINTER_TO_SIZE (task_data);
++  gsize count = (gsize) GPOINTER_TO_GUINTPTR(task_data);
+   GInputStreamClass *class;
+   GError *error = NULL;
+   gssize ret;
+@@ -1532,7 +1532,7 @@ g_input_stream_real_skip_async (GInputStream        *stream,
+       /* Read is thread-using async fallback.
+        * Make skip use threads too, so that we can use a possible sync skip
+        * implementation. */
+-      g_task_set_task_data (task, GSIZE_TO_POINTER (count), NULL);
++      g_task_set_task_data (task, GUINTPTR_TO_GPOINTER (count), NULL);
+ 
+       g_task_run_in_thread (task, skip_async_thread);
+       g_object_unref (task);
 diff --git gio/gioenumtypes.c.template gio/gioenumtypes.c.template
-index 948a01201..52effe67c 100644
+index 948a01201..e3f7dcc72 100644
 --- gio/gioenumtypes.c.template
 +++ gio/gioenumtypes.c.template
 @@ -13,7 +13,7 @@
@@ -126,12 +163,12 @@ index 948a01201..52effe67c 100644
  @enum_name@_get_type (void)
  {
 -  static gsize static_g_define_type_id = 0;
-+  static gintptr static_g_define_type_id = 0;
++  static guintptr static_g_define_type_id = 0;
  
    if (g_once_init_enter (&static_g_define_type_id))
      {
 diff --git gio/glocalfile.c gio/glocalfile.c
-index da38adea7..ac7b595b8 100644
+index da38adea7..489bbbfaf 100644
 --- gio/glocalfile.c
 +++ gio/glocalfile.c
 @@ -96,7 +96,7 @@
@@ -157,7 +194,7 @@ index da38adea7..ac7b595b8 100644
  _g_local_file_has_trash_dir (const char *dirname, dev_t dir_dev)
  {
 -  static gsize home_dev_set = 0;
-+  static gintptr home_dev_set = 0;
++  static guintptr home_dev_set = 0;
    static dev_t home_dev;
    static gboolean home_dev_valid = FALSE;
    char *topdir, *globaldir, *trashdir, *tmpname;
@@ -166,12 +203,12 @@ index da38adea7..ac7b595b8 100644
  {
    static gboolean remote_home = FALSE;
 -  static gsize initialized;
-+  static gintptr initialized;
++  static guintptr initialized;
    const gchar *home;
  
    home = g_get_home_dir ();
 diff --git gio/gopenuriportal.c gio/gopenuriportal.c
-index 2f527d828..09c1739a2 100644
+index 2f527d828..ca380393b 100644
 --- gio/gopenuriportal.c
 +++ gio/gopenuriportal.c
 @@ -43,7 +43,7 @@ static GXdpOpenURI *openuri;
@@ -179,12 +216,12 @@ index 2f527d828..09c1739a2 100644
  init_openuri_portal (void)
  {
 -  static gsize openuri_inited = 0;
-+  static gintptr openuri_inited = 0;
++  static guintptr openuri_inited = 0;
  
    if (g_once_init_enter (&openuri_inited))
      {
 diff --git gio/gportalsupport.c gio/gportalsupport.c
-index 233f6af45..b9e6c3091 100644
+index 233f6af45..7eae1f010 100644
 --- gio/gportalsupport.c
 +++ gio/gportalsupport.c
 @@ -27,7 +27,7 @@ static gboolean dconf_access;
@@ -192,12 +229,12 @@ index 233f6af45..b9e6c3091 100644
  read_flatpak_info (void)
  {
 -  static gsize flatpak_info_read = 0;
-+  static gintptr flatpak_info_read = 0;
++  static guintptr flatpak_info_read = 0;
    const gchar *path = "/.flatpak-info";
  
    if (!g_once_init_enter (&flatpak_info_read))
 diff --git gio/gsettingsschema.c gio/gsettingsschema.c
-index ef4ec1799..6dcf0bce1 100644
+index ef4ec1799..c206ffcac 100644
 --- gio/gsettingsschema.c
 +++ gio/gsettingsschema.c
 @@ -337,7 +337,7 @@ try_prepend_data_dir (const gchar *directory)
@@ -205,7 +242,7 @@ index ef4ec1799..6dcf0bce1 100644
  initialise_schema_sources (void)
  {
 -  static gsize initialised;
-+  static gintptr initialised;
++  static guintptr initialised;
  
    /* need a separate variable because 'schema_sources' may legitimately
     * be null if we have zero valid schema sources
@@ -214,12 +251,12 @@ index ef4ec1799..6dcf0bce1 100644
  static gchar **non_relocatable_schema_list;
  static gchar **relocatable_schema_list;
 -static gsize schema_lists_initialised;
-+static gintptr schema_lists_initialised;
++static guintptr schema_lists_initialised;
  
  static void
  ensure_schema_lists (void)
 diff --git gio/gtestdbus.c gio/gtestdbus.c
-index 992d29cef..6a30230d1 100644
+index 992d29cef..abc811b61 100644
 --- gio/gtestdbus.c
 +++ gio/gtestdbus.c
 @@ -119,7 +119,7 @@ _g_object_unref_and_wait_weak_notify (gpointer object)
@@ -227,7 +264,7 @@ index 992d29cef..6a30230d1 100644
  _g_test_watcher_add_pid (GPid pid)
  {
 -  static gsize started = 0;
-+  static gintptr started = 0;
++  static guintptr started = 0;
    HANDLE job;
  
    if (g_once_init_enter (&started))
@@ -236,12 +273,12 @@ index 992d29cef..6a30230d1 100644
  watcher_init (void)
  {
 -  static gsize started = 0;
-+  static gintptr started = 0;
++  static guintptr started = 0;
    static GIOChannel *channel = NULL;
    int errsv;
  
 diff --git gio/gvfs.c gio/gvfs.c
-index 6e2dcf060..cbf4deeba 100644
+index 6e2dcf060..4e6cbfdaa 100644
 --- gio/gvfs.c
 +++ gio/gvfs.c
 @@ -377,10 +377,10 @@ g_vfs_get_default (void)
@@ -249,7 +286,7 @@ index 6e2dcf060..cbf4deeba 100644
  g_vfs_get_local (void)
  {
 -  static gsize vfs = 0;
-+  static gintptr vfs = 0;
++  static guintptr vfs = 0;
  
    if (g_once_init_enter (&vfs))
 -    g_once_init_leave (&vfs, (gsize)_g_local_vfs_new ());
@@ -258,7 +295,7 @@ index 6e2dcf060..cbf4deeba 100644
    return G_VFS (vfs);
  }
 diff --git gio/tests/gdbus-error.c gio/tests/gdbus-error.c
-index 96ed42257..be49833bc 100644
+index 96ed42257..301fbc3d9 100644
 --- gio/tests/gdbus-error.c
 +++ gio/tests/gdbus-error.c
 @@ -196,7 +196,7 @@ GDBusErrorEntry test_error_entries[] =
@@ -266,12 +303,12 @@ index 96ed42257..be49833bc 100644
  test_register_error (void)
  {
 -  gsize test_error_quark = 0;
-+  gintptr test_error_quark = 0;
++  guintptr test_error_quark = 0;
    gboolean res;
    gchar *msg;
    GError *error;
 diff --git gio/tests/gdbus-example-proxy-subclass.c gio/tests/gdbus-example-proxy-subclass.c
-index ef2ed2037..357aa552e 100644
+index ef2ed2037..398b4bab9 100644
 --- gio/tests/gdbus-example-proxy-subclass.c
 +++ gio/tests/gdbus-example-proxy-subclass.c
 @@ -80,7 +80,7 @@ gchar       *accounts_user_frobnicate_sync     (AccountsUser        *user,
@@ -279,12 +316,12 @@ index ef2ed2037..357aa552e 100644
  accounts_user_get_interface_info (void)
  {
 -  static gsize has_info = 0;
-+  static gintptr has_info = 0;
++  static guintptr has_info = 0;
    static GDBusInterfaceInfo *info = NULL;
    if (g_once_init_enter (&has_info))
      {
 diff --git gio/tests/gsettings.c gio/tests/gsettings.c
-index 35d958e4d..5e8df8472 100644
+index 35d958e4d..ce43f688c 100644
 --- gio/tests/gsettings.c
 +++ gio/tests/gsettings.c
 @@ -1044,7 +1044,7 @@ test_object_set_property (GObject      *object,
@@ -292,7 +329,7 @@ index 35d958e4d..5e8df8472 100644
  test_enum_get_type (void)
  {
 -  static gsize define_type_id = 0;
-+  static gintptr define_type_id = 0;
++  static guintptr define_type_id = 0;
  
    if (g_once_init_enter (&define_type_id))
      {
@@ -301,12 +338,25 @@ index 35d958e4d..5e8df8472 100644
  test_flags_get_type (void)
  {
 -  static gsize define_type_id = 0;
-+  static gintptr define_type_id = 0;
++  static guintptr define_type_id = 0;
  
    if (g_once_init_enter (&define_type_id))
      {
+diff --git gio/tests/memory-output-stream.c gio/tests/memory-output-stream.c
+index ec1644ed8..5832a5cf6 100644
+--- gio/tests/memory-output-stream.c
++++ gio/tests/memory-output-stream.c
+@@ -259,7 +259,7 @@ test_properties (void)
+ 
+   data_fun = g_memory_output_stream_get_data (G_MEMORY_OUTPUT_STREAM (mo));
+   g_object_get (mo, "data", &data_prop, NULL);
+-  g_assert_cmphex (GPOINTER_TO_SIZE (data_fun), ==, GPOINTER_TO_SIZE (data_prop));
++  g_assert_cmphex (GPOINTER_TO_GUINTPTR (data_fun), ==, GPOINTER_TO_GUINTPTR (data_prop));
+ 
+   g_object_get (mo, "realloc-function", &func, NULL);
+   g_assert (func == g_realloc);
 diff --git glib/gatomic.c glib/gatomic.c
-index 0bc67aa35..2b00abfa0 100644
+index 0bc67aa35..3f9b1e47e 100644
 --- glib/gatomic.c
 +++ glib/gatomic.c
 @@ -422,7 +422,7 @@ gboolean
@@ -314,23 +364,50 @@ index 0bc67aa35..2b00abfa0 100644
   * Since: 2.30
   **/
 -gssize
-+gpointer
++gintptr
  (g_atomic_pointer_add) (volatile void *atomic,
                          gssize         val)
+ {
+@@ -449,7 +449,7 @@ gssize
+  *
+  * Since: 2.30
+  **/
+-gsize
++guintptr
+ (g_atomic_pointer_and) (volatile void *atomic,
+                         gsize          val)
+ {
+@@ -476,7 +476,7 @@ gsize
+  *
+  * Since: 2.30
+  **/
+-gsize
++guintptr
+ (g_atomic_pointer_or) (volatile void *atomic,
+                        gsize          val)
+ {
+@@ -503,7 +503,7 @@ gsize
+  *
+  * Since: 2.30
+  **/
+-gsize
++guintptr
+ (g_atomic_pointer_xor) (volatile void *atomic,
+                         gsize          val)
  {
 @@ -884,12 +884,12 @@ gboolean
    return success;
  }
  
 -gssize
-+gsize
++guintptr
  (g_atomic_pointer_add) (volatile void *atomic,
                          gssize         val)
  {
 -  gssize *ptr = atomic;
 -  gssize oldval;
-+  gsize *ptr = atomic;
-+  gsize oldval;
++  gpointer *ptr = atomic;
++  guintptr oldval;
  
    pthread_mutex_lock (&g_atomic_lock);
    oldval = *ptr;
@@ -339,19 +416,19 @@ index 0bc67aa35..2b00abfa0 100644
  }
  
 -gsize
-+gintptr
++guintptr
  (g_atomic_pointer_and) (volatile void *atomic,
                          gsize          val)
  {
 -  gsize *ptr = atomic;
 -  gsize oldval;
 +  gpointer *ptr = atomic;
-+  gintptr oldval;
++  guintptr oldval;
  
    pthread_mutex_lock (&g_atomic_lock);
 -  oldval = *ptr;
 -  *ptr = oldval & val;
-+  oldval = (gintptr) *ptr;
++  oldval = (guintptr) *ptr;
 +  *ptr = (gpointer) (oldval & val);
    pthread_mutex_unlock (&g_atomic_lock);
  
@@ -359,19 +436,19 @@ index 0bc67aa35..2b00abfa0 100644
  }
  
 -gsize
-+gintptr
++guintptr
  (g_atomic_pointer_or) (volatile void *atomic,
                         gsize          val)
  {
 -  gsize *ptr = atomic;
 -  gsize oldval;
 +  gpointer *ptr = atomic;
-+  gintptr oldval;
++  guintptr oldval;
  
    pthread_mutex_lock (&g_atomic_lock);
 -  oldval = *ptr;
 -  *ptr = oldval | val;
-+  oldval = (gintptr) *ptr;
++  oldval = (guintptr) *ptr;
 +  *ptr = (gpointer) (oldval | val);
    pthread_mutex_unlock (&g_atomic_lock);
  
@@ -379,25 +456,25 @@ index 0bc67aa35..2b00abfa0 100644
  }
  
 -gsize
-+gintptr
++guintptr
  (g_atomic_pointer_xor) (volatile void *atomic,
                          gsize          val)
  {
 -  gsize *ptr = atomic;
 -  gsize oldval;
-+  gpopinter *ptr = atomic;
-+  gintptr oldval;
++  gpointer *ptr = atomic;
++  guintptr oldval;
  
    pthread_mutex_lock (&g_atomic_lock);
 -  oldval = *ptr;
 -  *ptr = oldval ^ val;
-+  oldval = (gintptr) *ptr;
-+  *ptr = (gpointer) (oldval ^ valI);
++  oldval = (guintptr) *ptr;
++  *ptr = (gpointer) (oldval ^ val);
    pthread_mutex_unlock (&g_atomic_lock);
  
    return oldval;
 diff --git glib/gatomic.h glib/gatomic.h
-index 8b2b880c8..e4c7a2f3a 100644
+index 8b2b880c8..b95beb20b 100644
 --- glib/gatomic.h
 +++ glib/gatomic.h
 @@ -65,16 +65,16 @@ gboolean                g_atomic_pointer_compare_and_exchange (volatile void  *a
@@ -405,51 +482,69 @@ index 8b2b880c8..e4c7a2f3a 100644
                                                                 gpointer        newval);
  GLIB_AVAILABLE_IN_ALL
 -gssize                  g_atomic_pointer_add                  (volatile void  *atomic,
-+gsize			g_atomic_pointer_add                  (volatile void  *atomic,
++gintptr                 g_atomic_pointer_add                  (volatile void  *atomic,
                                                                 gssize          val);
  GLIB_AVAILABLE_IN_2_30
 -gsize                   g_atomic_pointer_and                  (volatile void  *atomic,
-+gintptr			g_atomic_pointer_and                  (volatile void  *atomic,
++guintptr                g_atomic_pointer_and                  (volatile void  *atomic,
                                                                 gsize           val);
  GLIB_AVAILABLE_IN_2_30
 -gsize                   g_atomic_pointer_or                   (volatile void  *atomic,
-+gintptr			g_atomic_pointer_or                   (volatile void  *atomic,
++guintptr                g_atomic_pointer_or                   (volatile void  *atomic,
                                                                 gsize           val);
  GLIB_AVAILABLE_IN_ALL
 -gsize                   g_atomic_pointer_xor                  (volatile void  *atomic,
-+gintptri		g_atomic_pointer_xor                  (volatile void  *atomic,
++guintptr                g_atomic_pointer_xor                  (volatile void  *atomic,
                                                                 gsize           val);
  
  GLIB_DEPRECATED_IN_2_30_FOR(g_atomic_int_add)
-@@ -234,7 +234,7 @@ G_END_DECLS
-   (G_GNUC_EXTENSION ({                                                       \
-     gsize *gapa_atomic = (gsize *) (atomic);                                 \
+@@ -228,34 +228,34 @@ G_END_DECLS
      G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
--    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gsize));                    \
-+    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gintptr));                    \
      (void) (0 ? (gpointer) *(atomic) : NULL);                                \
      (void) (0 ? (val) ^ (val) : 1);                                          \
-     (gsize) __atomic_fetch_and (gapa_atomic, (val), __ATOMIC_SEQ_CST);       \
-@@ -243,7 +243,7 @@ G_END_DECLS
+-    (gssize) __atomic_fetch_add ((atomic), (val), __ATOMIC_SEQ_CST);         \
++    (gintptr) __atomic_fetch_add ((atomic), (val), __ATOMIC_SEQ_CST);        \
+   }))
+ #define g_atomic_pointer_and(atomic, val) \
    (G_GNUC_EXTENSION ({                                                       \
-     gsize *gapo_atomic = (gsize *) (atomic);                                 \
+-    gsize *gapa_atomic = (gsize *) (atomic);                                 \
++    guintptr *gapa_atomic = (guintptr *) (atomic);                           \
      G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
 -    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gsize));                    \
-+    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gintptr));                    \
++    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (guintptr));                 \
      (void) (0 ? (gpointer) *(atomic) : NULL);                                \
      (void) (0 ? (val) ^ (val) : 1);                                          \
-     (gsize) __atomic_fetch_or (gapo_atomic, (val), __ATOMIC_SEQ_CST);        \
-@@ -252,7 +252,7 @@ G_END_DECLS
+-    (gsize) __atomic_fetch_and (gapa_atomic, (val), __ATOMIC_SEQ_CST);       \
++    (guintptr ) __atomic_fetch_and (gapa_atomic, (val), __ATOMIC_SEQ_CST);   \
+   }))
+ #define g_atomic_pointer_or(atomic, val) \
    (G_GNUC_EXTENSION ({                                                       \
-     gsize *gapx_atomic = (gsize *) (atomic);                                 \
+-    gsize *gapo_atomic = (gsize *) (atomic);                                 \
++    guintptr *gapo_atomic = (guintptr *) (atomic);                           \
      G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
 -    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gsize));                    \
-+    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gintptr));                    \
++    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (guintptr));                 \
      (void) (0 ? (gpointer) *(atomic) : NULL);                                \
      (void) (0 ? (val) ^ (val) : 1);                                          \
-     (gsize) __atomic_fetch_xor (gapx_atomic, (val), __ATOMIC_SEQ_CST);       \
+-    (gsize) __atomic_fetch_or (gapo_atomic, (val), __ATOMIC_SEQ_CST);        \
++    (guintptr) __atomic_fetch_or (gapo_atomic, (val), __ATOMIC_SEQ_CST);     \
+   }))
+ #define g_atomic_pointer_xor(atomic, val) \
+   (G_GNUC_EXTENSION ({                                                       \
+-    gsize *gapx_atomic = (gsize *) (atomic);                                 \
++    guintptr *gapx_atomic = (guintptr *) (atomic);                           \
+     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
+-    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gsize));                    \
++    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (guintptr));                 \
+     (void) (0 ? (gpointer) *(atomic) : NULL);                                \
+     (void) (0 ? (val) ^ (val) : 1);                                          \
+-    (gsize) __atomic_fetch_xor (gapx_atomic, (val), __ATOMIC_SEQ_CST);       \
++    (guintptr) __atomic_fetch_xor (gapx_atomic, (val), __ATOMIC_SEQ_CST);    \
+   }))
+ 
+ #else /* defined(__ATOMIC_SEQ_CST) */
 diff --git glib/gbitlock.c glib/gbitlock.c
-index 9384d1a44..4a26a1d48 100644
+index 9384d1a44..56be25eb3 100644
 --- glib/gbitlock.c
 +++ glib/gbitlock.c
 @@ -429,9 +429,9 @@ void
@@ -464,84 +559,65 @@ index 9384d1a44..4a26a1d48 100644
  
        v = (gsize) g_atomic_pointer_get (pointer_address);
        if (v & mask)
-@@ -445,7 +445,7 @@ void
+@@ -445,9 +445,9 @@ void
      }
      goto retry;
  #else
 -  gsize *pointer_address = address_nonvolatile;
-+  gpointer pointer_address = address_nonvolatile;
-   gsize mask = 1u << lock_bit;
-   gsize v;
+-  gsize mask = 1u << lock_bit;
+-  gsize v;
++  gpointer *pointer_address = address_nonvolatile;
++  guintptr mask = 1u << lock_bit;
++  guintptr v;
  
-@@ -504,7 +504,7 @@ gboolean
+  retry:
+   v = g_atomic_pointer_or (pointer_address, mask);
+@@ -504,9 +504,9 @@ gboolean
      return result;
  #else
      void *address_nonvolatile = (void *) address;
 -    gsize *pointer_address = address_nonvolatile;
-+    gpointer pointer_address = address_nonvolatile;
-     gsize mask = 1u << lock_bit;
-     gsize v;
+-    gsize mask = 1u << lock_bit;
+-    gsize v;
++    gpointer *pointer_address = address_nonvolatile;
++    guintptr mask = 1u << lock_bit;
++    guintptr v;
  
-@@ -548,7 +548,7 @@ void
+     g_return_val_if_fail (lock_bit < 32, FALSE);
+ 
+@@ -548,8 +548,8 @@ void
                        : "r" (address), "r" ((gsize) lock_bit)
                        : "cc", "memory");
  #else
 -    gsize *pointer_address = address_nonvolatile;
-+    gpointer pointer_address = address_nonvolatile;
-     gsize mask = 1u << lock_bit;
+-    gsize mask = 1u << lock_bit;
++    gpointer *pointer_address = address_nonvolatile;
++    guintptr mask = 1u << lock_bit;
  
      g_atomic_pointer_and (pointer_address, ~mask);
+ #endif
 diff --git glib/gdataset.c glib/gdataset.c
-index 796d203d8..bf4f5e571 100644
+index 796d203d8..b31d6bc7e 100644
 --- glib/gdataset.c
 +++ glib/gdataset.c
-@@ -31,6 +31,7 @@
- 
- #include "config.h"
- 
-+#include <assert.h>
- #include <string.h>
- 
- #include "gdataset.h"
-@@ -139,13 +140,13 @@
+@@ -139,13 +139,13 @@
  
  /* datalist pointer accesses have to be carried out atomically */
  #define G_DATALIST_GET_POINTER(datalist)						\
 -  ((GData*) ((gsize) g_atomic_pointer_get (datalist) & ~(gsize) G_DATALIST_FLAGS_MASK_INTERNAL))
-+  ((GData *) ((gintptr) g_atomic_pointer_get (datalist) & ~(gsize) G_DATALIST_FLAGS_MASK_INTERNAL))
++  ((GData *) ((guintptr) g_atomic_pointer_get (datalist) & ~(gsize) G_DATALIST_FLAGS_MASK_INTERNAL))
  
  #define G_DATALIST_SET_POINTER(datalist, pointer)       G_STMT_START {                  \
    gpointer _oldv, _newv;                                                                \
    do {                                                                                  \
      _oldv = g_atomic_pointer_get (datalist);                                            \
 -    _newv = (gpointer) (((gsize) _oldv & G_DATALIST_FLAGS_MASK_INTERNAL) | (gsize) pointer);     \
-+    _newv = (gpointer) (((gintptr) pointer | (gsize) _oldv & G_DATALIST_FLAGS_MASK_INTERNAL));     \
++    _newv = (gpointer) (((guintptr) pointer | (gsize) _oldv & G_DATALIST_FLAGS_MASK_INTERNAL));     \
    } while (!g_atomic_pointer_compare_and_exchange ((void**) datalist, _oldv, _newv));   \
  } G_STMT_END
  
-@@ -852,6 +853,8 @@ g_datalist_id_dup_data (GData          **datalist,
-   gpointer retval = NULL;
-   GData *d;
-   GDataElt *data, *data_end;
-+  gintptr tmp;
-+  gsize len;
- 
-   g_datalist_lock (datalist);
- 
-@@ -859,7 +862,10 @@ g_datalist_id_dup_data (GData          **datalist,
-   if (d)
-     {
-       data = d->data;
--      data_end = data + d->len;
-+      data_end  = data + d->len;
-+      //len = d->len;
-+      //tmp = ((gintptr) data + (d->len * sizeof(GDataElt *)));
-+      //data_end = (gpointer) ((gintptr) data + (d->len * sizeof(GDataElt *)));
-       do
-         {
-           if (data->key == key_id)
 diff --git glib/gerror.h glib/gerror.h
-index 33e1d5aa5..88bcb00af 100644
+index 33e1d5aa5..7c1d39af8 100644
 --- glib/gerror.h
 +++ glib/gerror.h
 @@ -108,7 +108,7 @@ GQuark                                                                  \
@@ -549,12 +625,12 @@ index 33e1d5aa5..88bcb00af 100644
  {                                                                       \
    static GQuark q;                                                      \
 -  static gsize initialized = 0;                                         \
-+  static gintptr initialized = 0;                                         \
++  static guintptr initialized = 0;                                      \
                                                                          \
    if (g_once_init_enter (&initialized))                                 \
      {                                                                   \
 diff --git glib/ggettext.c glib/ggettext.c
-index 303b9b9b6..f032d523c 100644
+index 303b9b9b6..c154b2f72 100644
 --- glib/ggettext.c
 +++ glib/ggettext.c
 @@ -95,7 +95,7 @@ _glib_get_locale_dir (void)
@@ -562,7 +638,7 @@ index 303b9b9b6..f032d523c 100644
  ensure_gettext_initialized (void)
  {
 -  static gsize initialised;
-+  static gintptr initialised;
++  static guintptr initialised;
  
    if (g_once_init_enter (&initialised))
      {
@@ -571,43 +647,46 @@ index 303b9b9b6..f032d523c 100644
  _g_dgettext_should_translate (void)
  {
 -  static gsize translate = 0;
-+  static gintptr translate = 0;
++  static guintptr translate = 0;
    enum {
      SHOULD_TRANSLATE = 1,
      SHOULD_NOT_TRANSLATE = 2
 diff --git glib/ghash.c glib/ghash.c
-index 3d71643c7..702f4a08c 100644
+index 3d71643c7..663e6ff11 100644
 --- glib/ghash.c
 +++ glib/ghash.c
-@@ -249,7 +249,7 @@
+@@ -249,9 +249,11 @@
  #define BIG_ENTRY_SIZE (SIZEOF_VOID_P)
  #define SMALL_ENTRY_SIZE (SIZEOF_INT)
  
--#if SMALL_ENTRY_SIZE < BIG_ENTRY_SIZE
-+#if SMALL_ENTRY_SIZE < BIG_ENTRY_SIZE && 0
++#if !defined(__CHERI_PURE_CAPABILITY__)
+ #if SMALL_ENTRY_SIZE < BIG_ENTRY_SIZE
  # define USE_SMALL_ARRAYS
  #endif
++#endif // !defined(__CHERI_PURE_CAPABILITY__)
  
-@@ -290,7 +290,7 @@ typedef struct
+ struct _GHashTable
+ {
+@@ -290,7 +292,7 @@ typedef struct
    gpointer     dummy2;
    gint         position;
    gboolean     dummy3;
 -  gint         version;
-+  gintptr      version;
++  guintptr     version;
  } RealIter;
  
  G_STATIC_ASSERT (sizeof (GHashTableIter) == sizeof (RealIter));
-@@ -389,7 +389,7 @@ g_hash_table_fetch_key_or_value (gpointer a, guint index, gboolean is_big)
+@@ -389,7 +391,7 @@ g_hash_table_fetch_key_or_value (gpointer a, guint index, gboolean is_big)
  #ifndef USE_SMALL_ARRAYS
    is_big = TRUE;
  #endif
 -  return is_big ? *(((gpointer *) a) + index) : GUINT_TO_POINTER (*(((guint *) a) + index));
-+  return is_big ? *((gpointer *) ((gintptr) a + (index * sizeof(gpointer *)))) : (gpointer) ((gintptr) a + (index * sizeof(guint)));
++  return is_big ? *((gpointer *) ((guintptr) a + (index * sizeof(gpointer *)))) : (gpointer) ((gintptr) a + (index * sizeof(guint)));
  }
  
  static inline void
 diff --git glib/glibconfig.h.in glib/glibconfig.h.in
-index e66748d95..5354eccc8 100644
+index e66748d95..0713cc629 100644
 --- glib/glibconfig.h.in
 +++ glib/glibconfig.h.in
 @@ -10,6 +10,7 @@
@@ -625,27 +704,29 @@ index e66748d95..5354eccc8 100644
 -typedef signed @glib_intptr_type_define@ gintptr;
 -typedef unsigned @glib_intptr_type_define@ guintptr;
 +typedef @glib_intptr_type_define@ gintptr;
-+typedef @glib_intptr_type_define@ guintptr;
++typedef @glib_uintptr_type_define@ guintptr;
  
  #define G_GINTPTR_MODIFIER      @gintptr_modifier@
  #define G_GINTPTR_FORMAT        @gintptr_format@
 diff --git glib/gmacros.h glib/gmacros.h
-index d528531f4..ea4d67420 100644
+index d528531f4..0c3c4737d 100644
 --- glib/gmacros.h
 +++ glib/gmacros.h
-@@ -903,8 +903,8 @@
+@@ -903,8 +903,10 @@
  
  /* Macros by analogy to GINT_TO_POINTER, GPOINTER_TO_INT
   */
 -#define GPOINTER_TO_SIZE(p)	((gsize) (p))
 -#define GSIZE_TO_POINTER(s)	((gpointer) (gsize) (s))
-+#define GPOINTER_TO_SIZE(p)	((gintptr) (p))
-+#define GSIZE_TO_POINTER(s)	((gpointer) (gintptr) (s))
++#define GPOINTER_TO_GINTPTR(p)	((gintptr) (p))
++#define GINTPTR_TO_GPOINTER(s)	((gpointer) (gintptr) (s))
++#define GPOINTER_TO_GUINTPTR(p)	((guintptr) (p))
++#define GUINTPTR_TO_GPOINTER(s)	((gpointer) (guintptr) (s))
  
  /* Provide convenience macros for handling structure
   * fields through their offsets.
 diff --git glib/gmain.c glib/gmain.c
-index 94aa1152a..d3202783f 100644
+index 94aa1152a..b1c407514 100644
 --- glib/gmain.c
 +++ glib/gmain.c
 @@ -690,7 +690,7 @@ g_main_context_new (void)
@@ -653,7 +734,7 @@ index 94aa1152a..d3202783f 100644
  g_main_context_new_with_flags (GMainContextFlags flags)
  {
 -  static gsize initialised;
-+  static gintptr initialised;
++  static guintptr initialised;
    GMainContext *context;
  
    if (g_once_init_enter (&initialised))
@@ -662,12 +743,12 @@ index 94aa1152a..d3202783f 100644
  g_get_worker_context (void)
  {
 -  static gsize initialised;
-+  static gintptr initialised;
++  static guintptr initialised;
  
    if (g_once_init_enter (&initialised))
      {
 diff --git glib/gmessages.c glib/gmessages.c
-index 008bf5c13..ab3849f3d 100644
+index 008bf5c13..8a3ea2ef7 100644
 --- glib/gmessages.c
 +++ glib/gmessages.c
 @@ -2767,7 +2767,7 @@ g_log_writer_default (GLogLevelFlags   log_level,
@@ -675,7 +756,7 @@ index 008bf5c13..ab3849f3d 100644
                        gpointer         user_data)
  {
 -  static gsize initialized = 0;
-+  static gintptr initialized = 0;
++  static guintptr initialized = 0;
    static gboolean stderr_is_journal = FALSE;
  
    g_return_val_if_fail (fields != NULL, G_LOG_WRITER_UNHANDLED);
@@ -693,7 +774,7 @@ index 86580f524..c2fd4c986 100644
  	    p.var = 2;
  	}
 diff --git glib/grand.c glib/grand.c
-index a7f5f43fd..cfe050d6d 100644
+index a7f5f43fd..6b9084465 100644
 --- glib/grand.c
 +++ glib/grand.c
 @@ -138,7 +138,7 @@ G_LOCK_DEFINE_STATIC (global_random);
@@ -701,12 +782,12 @@ index a7f5f43fd..cfe050d6d 100644
  get_random_version (void)
  {
 -  static gsize initialized = FALSE;
-+  static gintptr initialized = FALSE;
++  static guintptr initialized = FALSE;
    static guint random_version;
  
    if (g_once_init_enter (&initialized))
 diff --git glib/gregex.c glib/gregex.c
-index 1aa8416ff..4c56b1d1f 100644
+index 1aa8416ff..98352da9c 100644
 --- glib/gregex.c
 +++ glib/gregex.c
 @@ -1305,7 +1305,7 @@ g_regex_new (const gchar         *pattern,
@@ -714,27 +795,26 @@ index 1aa8416ff..4c56b1d1f 100644
    const gchar *errmsg;
    gboolean optimize = FALSE;
 -  static gsize initialised = 0;
-+  static gintptr initialised = 0;
++  static guintptr initialised = 0;
  
    g_return_val_if_fail (pattern != NULL, NULL);
    g_return_val_if_fail (error == NULL || *error == NULL, NULL);
 diff --git glib/gslice.c glib/gslice.c
-index 4e999202e..aca98a142 100644
+index 4e999202e..2fa06560c 100644
 --- glib/gslice.c
 +++ glib/gslice.c
-@@ -187,8 +187,9 @@
+@@ -187,8 +187,8 @@
  
  /* --- macros and constants --- */
  #define LARGEALIGNMENT          (256)
 -#define P2ALIGNMENT             (2 * sizeof (gsize))                            /* fits 2 pointers (assumed to be 2 * GLIB_SIZEOF_SIZE_T below) */
 -#define ALIGN(size, base)       ((base) * (gsize) (((size) + (base) - 1) / (base)))
-+#define P2ALIGNMENT             (2 * sizeof (gintptr))                          /* fits 2 pointers (assumed to be 2 * GLIB_SIZEOF_SIZE_T below) */
-+//#define ALIGN(size, base)       ((base) * (((gintptr) (size) + (base) - 1) / (base)))
-+#define ALIGN(size, base)       (((gintptr) size + (base - 1)) & ~(gsize) (base - 1))
++#define P2ALIGNMENT             (2 * sizeof (guintptr))                          /* fits 2 pointers (assumed to be 2 * GLIB_SIZEOF_SIZE_T below) */
++#define ALIGN(size, base)       (((guintptr) size + (base - 1)) & ~(gsize) (base - 1))
  #define NATIVE_MALLOC_PADDING   P2ALIGNMENT                                     /* per-page padding left for native malloc(3) see [1] */
  #define SLAB_INFO_SIZE          P2ALIGN (sizeof (SlabInfo) + NATIVE_MALLOC_PADDING)
  #define MAX_MAGAZINE_SIZE       (256)                                           /* see [3] and allocator_get_magazine_threshold() for this */
-@@ -201,10 +202,12 @@
+@@ -201,10 +201,12 @@
  #define SLAB_BPAGE_SIZE(al,csz) (8 * (csz) + SLAB_INFO_SIZE)
  
  /* optimized version of ALIGN (size, P2ALIGNMENT) */
@@ -749,43 +829,43 @@ index 4e999202e..aca98a142 100644
  #else
  #define P2ALIGN(size)   ALIGN (size, P2ALIGNMENT)
  #endif
-@@ -745,7 +748,7 @@ magazine_cache_push_magazine (guint      ix,
+@@ -745,7 +747,7 @@ magazine_cache_push_magazine (guint      ix,
    magazine_chain_prev (next) = current;
    magazine_chain_prev (current) = prev;
    magazine_chain_next (current) = next;
 -  magazine_chain_count (current) = (gpointer) count;
-+  magazine_chain_count (current) = (gpointer) (gintptr) count;
++  magazine_chain_count (current) = (gpointer) (guintptr) count;
    /* stamp magazine */
    magazine_cache_update_stamp();
    magazine_chain_stamp (current) = GUINT_TO_POINTER (allocator->last_stamp);
-@@ -1234,7 +1237,7 @@ g_slice_free_chain_with_offset (gsize    mem_size,
+@@ -1234,7 +1236,7 @@ g_slice_free_chain_with_offset (gsize    mem_size,
        guint ix = SLAB_INDEX (allocator, chunk_size);
        while (slice)
          {
 -          guint8 *current = slice;
-+          gintptr current = slice;
++          guintptr current = (guintptr) slice;
            slice = *(gpointer*) (current + next_offset);
            if (G_UNLIKELY (allocator->config.debug_blocks) &&
                !smc_notify_free (current, mem_size))
-@@ -1255,7 +1258,7 @@ g_slice_free_chain_with_offset (gsize    mem_size,
+@@ -1255,7 +1257,7 @@ g_slice_free_chain_with_offset (gsize    mem_size,
        g_mutex_lock (&allocator->slab_mutex);
        while (slice)
          {
 -          guint8 *current = slice;
-+          gintptr current = (gintptr) slice;
++          guintptr current = (guintptr) slice;
            slice = *(gpointer*) (current + next_offset);
            if (G_UNLIKELY (allocator->config.debug_blocks) &&
                !smc_notify_free (current, mem_size))
-@@ -1269,7 +1272,7 @@ g_slice_free_chain_with_offset (gsize    mem_size,
+@@ -1269,7 +1271,7 @@ g_slice_free_chain_with_offset (gsize    mem_size,
    else                                  /* delegate to system malloc */
      while (slice)
        {
 -        guint8 *current = slice;
-+        gintptr current = (gintptr) slice;
++        guintptr current = (guintptr) slice;
          slice = *(gpointer*) (current + next_offset);
          if (G_UNLIKELY (allocator->config.debug_blocks) &&
              !smc_notify_free (current, mem_size))
-@@ -1319,18 +1322,19 @@ allocator_add_slab (Allocator *local_allocator,
+@@ -1319,18 +1321,19 @@ allocator_add_slab (Allocator *local_allocator,
  {
    ChunkLink *chunk;
    SlabInfo *sinfo;
@@ -793,7 +873,7 @@ index 4e999202e..aca98a142 100644
 +  gsize padding, n_chunks, color = 0;
    gsize page_size;
    int errsv;
-+  gintptr addr;
++  guintptr addr;
    gpointer aligned_memory;
 -  guint8 *mem;
 +  guintptr mem;
@@ -804,20 +884,20 @@ index 4e999202e..aca98a142 100644
    aligned_memory = allocator_memalign (page_size, page_size - NATIVE_MALLOC_PADDING);
    errsv = errno;
 -  mem = aligned_memory;
-+  mem = (gintptr) aligned_memory;
++  mem = (guintptr) aligned_memory;
  
    if (!mem)
      {
-@@ -1339,7 +1343,7 @@ allocator_add_slab (Allocator *local_allocator,
+@@ -1339,7 +1342,7 @@ allocator_add_slab (Allocator *local_allocator,
                   (guint) (page_size - NATIVE_MALLOC_PADDING), (guint) page_size, syserr);
      }
    /* mask page address */
 -  addr = ((gsize) mem / page_size) * page_size;
-+  addr = (gpointer) ((gintptr) mem & ~(gsize)(page_size - 1));
++  addr = (gpointer) ((guintptr) mem & ~(gsize)(page_size - 1));
    /* assert alignment */
    mem_assert (aligned_memory == (gpointer) addr);
    /* basic slab info setup */
-@@ -1347,8 +1351,8 @@ allocator_add_slab (Allocator *local_allocator,
+@@ -1347,8 +1350,8 @@ allocator_add_slab (Allocator *local_allocator,
    sinfo->n_allocated = 0;
    sinfo->chunks = NULL;
    /* figure cache colorization */
@@ -828,7 +908,7 @@ index 4e999202e..aca98a142 100644
    if (padding)
      {
        color = (local_allocator->color_accu * P2ALIGNMENT) % padding;
-@@ -1359,7 +1363,7 @@ allocator_add_slab (Allocator *local_allocator,
+@@ -1359,7 +1362,7 @@ allocator_add_slab (Allocator *local_allocator,
    sinfo->chunks = chunk;
    for (i = 0; i < n_chunks - 1; i++)
      {
@@ -837,23 +917,23 @@ index 4e999202e..aca98a142 100644
        chunk = chunk->next;
      }
    chunk->next = NULL;   /* last chunk */
-@@ -1393,10 +1397,11 @@ slab_allocator_free_chunk (gsize    chunk_size,
+@@ -1393,10 +1396,11 @@ slab_allocator_free_chunk (gsize    chunk_size,
    gboolean was_empty;
    guint ix = SLAB_INDEX (allocator, chunk_size);
    gsize page_size = allocator_aligned_page_size (allocator, SLAB_BPAGE_SIZE (allocator, chunk_size));
 -  gsize addr = ((gsize) mem / page_size) * page_size;
-+  gintptr mem_tmp = (gintptr) mem;
-+  gpointer addr = (gpointer) ((gintptr) mem & ~(gsize)(page_size - 1));
++  guintptr mem_tmp = (guintptr) mem;
++  gpointer addr = (gpointer) ((guintptr) mem & ~(gsize)(page_size - 1));
    /* mask page address */
 -  guint8 *page = (guint8*) addr;
 -  SlabInfo *sinfo = (SlabInfo*) (page + page_size - SLAB_INFO_SIZE);
-+  gintptr page = (gintptr) addr;
++  guintptr page = (guintptr) addr;
 +  SlabInfo *sinfo = (SlabInfo*)  (page + page_size - SLAB_INFO_SIZE);
    /* assert valid chunk count */
    mem_assert (sinfo->n_allocated > 0);
    /* add chunk to free list */
 diff --git glib/gstrfuncs.c glib/gstrfuncs.c
-index 927353309..5f458ebfc 100644
+index 927353309..a9da671c2 100644
 --- glib/gstrfuncs.c
 +++ glib/gstrfuncs.c
 @@ -326,7 +326,7 @@ const guint16 * const g_ascii_table = ascii_table_data;
@@ -861,12 +941,37 @@ index 927353309..5f458ebfc 100644
  get_C_locale (void)
  {
 -  static gsize initialized = FALSE;
-+  static gintptr initialized = FALSE;
++  static guintptr initialized = FALSE;
    static locale_t C_locale = NULL;
  
    if (g_once_init_enter (&initialized))
+diff --git glib/gthread.c glib/gthread.c
+index 08389468c..212ac6dcd 100644
+--- glib/gthread.c
++++ glib/gthread.c
+@@ -698,7 +698,7 @@ g_once_impl (GOnce       *once,
+ gboolean
+ (g_once_init_enter) (volatile void *location)
+ {
+-  gsize *value_location = (gsize *) location;
++  guintptr *value_location = (guintptr *) location;
+   gboolean need_init = FALSE;
+   g_mutex_lock (&g_once_mutex);
+   if (g_atomic_pointer_get (value_location) == 0)
+@@ -736,9 +736,9 @@ gboolean
+  */
+ void
+ (g_once_init_leave) (volatile void *location,
+-                     gsize          result)
++                     gpointer       result)
+ {
+-  gsize *value_location = (gsize *) location;
++  gpointer *value_location = (gpointer *) location;
+ 
+   g_return_if_fail (g_atomic_pointer_get (value_location) == 0);
+   g_return_if_fail (result != 0);
 diff --git glib/gthread.h glib/gthread.h
-index a30815eb8..58274c6f5 100644
+index a30815eb8..43fdc1cff 100644
 --- glib/gthread.h
 +++ glib/gthread.h
 @@ -232,7 +232,7 @@ GLIB_AVAILABLE_IN_ALL
@@ -878,17 +983,29 @@ index a30815eb8..58274c6f5 100644
  
  /* Use C11-style atomic extensions to check the fast path for status=ready. If
   * they are not available, fall back to using a mutex and condition variable in
-@@ -264,7 +264,7 @@ void            g_once_init_leave               (volatile void  *location,
-   (G_GNUC_EXTENSION ({                                               \
-     G_STATIC_ASSERT (sizeof *(location) == sizeof (gpointer));       \
-     0 ? (void) (*(location) = (result)) : (void) 0;                  \
--    g_once_init_leave ((location), (gsize) (result));                \
-+    g_once_init_leave ((location), (gpointer) (result));                \
-   }))
- #else
+@@ -252,6 +252,12 @@ void            g_once_init_leave               (volatile void  *location,
+ # define g_once(once, func, arg) g_once_impl ((once), (func), (arg))
+ #endif
+ 
++#if defined(__CHERI_PURE_CAPABILITY__)
++# define g_once_init_enter(location) \
++  (g_once_init_enter((location)))
++# define g_once_init_leave(location, result) \
++  (g_once_init_leave((location), (gpointer) (result)))
++#else // defined(__CHERI_PURE_CAPABILITY__)
+ #ifdef __GNUC__
  # define g_once_init_enter(location) \
+   (G_GNUC_EXTENSION ({                                               \
+@@ -272,6 +278,7 @@ void            g_once_init_leave               (volatile void  *location,
+ # define g_once_init_leave(location, result) \
+   (g_once_init_leave((location), (gsize) (result)))
+ #endif
++#endif // defined(__CHERI_PURE_CAPABILITY__)
+ 
+ GLIB_AVAILABLE_IN_2_36
+ guint          g_get_num_processors (void);
 diff --git glib/gtimezone.c glib/gtimezone.c
-index a37dbe2e1..1060dc64e 100644
+index a37dbe2e1..284683b6d 100644
 --- glib/gtimezone.c
 +++ glib/gtimezone.c
 @@ -1965,7 +1965,7 @@ GTimeZone *
@@ -896,42 +1013,34 @@ index a37dbe2e1..1060dc64e 100644
  {
    static GTimeZone *utc = NULL;
 -  static gsize initialised;
-+  static gintptr initialised;
++  static guintptr initialised;
  
    if (g_once_init_enter (&initialised))
      {
 diff --git glib/guniprop.c glib/guniprop.c
-index aac833bc8..d8093690a 100644
+index aac833bc8..d828e63c7 100644
 --- glib/guniprop.c
 +++ glib/guniprop.c
-@@ -534,7 +534,6 @@ g_unichar_iswide_cjk (gunichar c)
-   return FALSE;
- }
- 
--
- /**
-  * g_unichar_toupper:
-  * @c: a Unicode character
-@@ -554,7 +553,7 @@ g_unichar_toupper (gunichar c)
+@@ -554,7 +554,7 @@ g_unichar_toupper (gunichar c)
        gunichar val = ATTTABLE (c >> 8, c & 0xff);
        if (val >= 0x1000000)
  	{
 -	  const gchar *p = special_case_table + val - 0x1000000;
-+	  const gchar *p = (gpointer) ((gintptr) special_case_table + (val - 0x1000000));
++	  const gchar *p = (gpointer) ((guintptr) special_case_table + (val - 0x1000000));
            val = g_utf8_get_char (p);
  	}
        /* Some lowercase letters, e.g., U+000AA, FEMININE ORDINAL INDICATOR,
-@@ -594,7 +593,7 @@ g_unichar_tolower (gunichar c)
+@@ -594,7 +594,7 @@ g_unichar_tolower (gunichar c)
        gunichar val = ATTTABLE (c >> 8, c & 0xff);
        if (val >= 0x1000000)
  	{
 -	  const gchar *p = special_case_table + val - 0x1000000;
-+	  const gchar *p = (gpointer) ((gintptr) special_case_table + (val - 0x1000000));
++	  const gchar *p = (gpointer) ((guintptr) special_case_table + (val - 0x1000000));
  	  return g_utf8_get_char (p);
  	}
        else
 diff --git glib/gvariant.c glib/gvariant.c
-index 42ffc9a87..755941693 100644
+index 42ffc9a87..4991f9cbb 100644
 --- glib/gvariant.c
 +++ glib/gvariant.c
 @@ -3201,7 +3201,7 @@ struct heap_builder
@@ -939,7 +1048,7 @@ index 42ffc9a87..755941693 100644
  /* Just to make sure that by adding a union to GVariantBuilder, we
   * didn't accidentally change ABI. */
 -G_STATIC_ASSERT (sizeof (GVariantBuilder) == sizeof (gsize[16]));
-+G_STATIC_ASSERT (sizeof (GVariantBuilder) == sizeof (gsize[16]) + sizeof(gintptr));
++G_STATIC_ASSERT (sizeof (GVariantBuilder) == sizeof (gsize[16]) + sizeof(guintptr));
  
  static gboolean
  ensure_valid_builder (GVariantBuilder *builder)
@@ -966,7 +1075,7 @@ index 7ba586c61..27459bf5b 100644
  
  GLIB_AVAILABLE_IN_ALL
 diff --git glib/tests/atomic.c glib/tests/atomic.c
-index 8bc100f4e..53b0d703e 100644
+index 8bc100f4e..1746e0431 100644
 --- glib/tests/atomic.c
 +++ glib/tests/atomic.c
 @@ -28,7 +28,7 @@ test_types (void)
@@ -974,7 +1083,7 @@ index 8bc100f4e..53b0d703e 100644
    const char *str = "Hello";
    int *ip, *ip2;
 -  gsize gs, gs2;
-+  gintptr gi, gi2;
++  guintptr gi, gi2;
    gboolean res;
  
    csp = &s;
@@ -989,9 +1098,9 @@ index 8bc100f4e..53b0d703e 100644
 -  res = g_atomic_pointer_compare_and_exchange (&gs, NULL, (gsize) NULL);
 +  g_atomic_pointer_set (&gi, 0);
 +  vp2 = (gpointer) g_atomic_pointer_get (&gi);
-+  gi2 = (gsize) vp2;
++  gi2 = (guintptr) vp2;
 +  g_assert_cmpuint (gi2, ==, 0);
-+  res = g_atomic_pointer_compare_and_exchange (&gi, NULL, (gsize) NULL);
++  res = g_atomic_pointer_compare_and_exchange (&gi, NULL, (guintptr) NULL);
    g_assert_true (res);
 -  g_assert_cmpuint (gs, ==, 0);
 -  gs2 = (gsize) g_atomic_pointer_add (&gs, 5);
@@ -1007,16 +1116,16 @@ index 8bc100f4e..53b0d703e 100644
 -  g_assert_cmpuint (gs2, ==, 12);
 -  g_assert_cmpuint (gs, ==, 8);
 +  g_assert_cmpuint (gi, ==, 0);
-+  gi2 = (gsize) g_atomic_pointer_add (&gi, 5);
++  gi2 = (guintptr) g_atomic_pointer_add (&gi, 5);
 +  g_assert_cmpuint (gi2, ==, 0);
 +  g_assert_cmpuint (gi, ==, 5);
-+  gi2 = (gsize) g_atomic_pointer_and (&gi, 6);
++  gi2 = (guintptr) g_atomic_pointer_and (&gi, 6);
 +  g_assert_cmpuint (gi2, ==, 5);
 +  g_assert_cmpuint (gi, ==, 4);
-+  gi2 = (gsize) g_atomic_pointer_or (&gi, 8);
++  gi2 = (guintptr) g_atomic_pointer_or (&gi, 8);
 +  g_assert_cmpuint (gi2, ==, 4);
 +  g_assert_cmpuint (gi, ==, 12);
-+  gi2 = (gsize) g_atomic_pointer_xor (&gi, 4);
++  gi2 = (guintptr) g_atomic_pointer_xor (&gi, 4);
 +  g_assert_cmpuint (gi2, ==, 12);
 +  g_assert_cmpuint (gi, ==, 8);
  
@@ -1033,7 +1142,7 @@ index 8bc100f4e..53b0d703e 100644
 -  res = g_atomic_pointer_compare_and_exchange (&gs, NULL, NULL);
 +  g_atomic_pointer_set (&gi, 0);
 +  vp = g_atomic_pointer_get (&gi);
-+  gi2 = (gsize) vp;
++  gi2 = (guintptr) vp;
 +  g_assert_cmpuint (gi2, ==, 0);
 +  res = g_atomic_pointer_compare_and_exchange (&gi, NULL, NULL);
    g_assert_true (res);
@@ -1051,10 +1160,10 @@ index 8bc100f4e..53b0d703e 100644
 -  g_assert_cmpuint (gs2, ==, 12);
 -  g_assert_cmpuint (gs, ==, 8);
 +  g_assert_cmpuint (gi, ==, 0);
-+  gi2 = (gsize) (gintptr) g_atomic_pointer_add (&gi, 5);
++  gi2 = (guintptr) (guintptr) g_atomic_pointer_add (&gi, 5);
 +  g_assert_cmpuint (gi2, ==, 0);
 +  g_assert_cmpuint (gi, ==, 5);
-+  gi2 = (gsize) (gintptr) g_atomic_pointer_and (&gi, 6);
++  gi2 = (guintptr) (guintptr) g_atomic_pointer_and (&gi, 6);
 +  g_assert_cmpuint (gi2, ==, 5);
 +  g_assert_cmpuint (gi, ==, 4);
 +  gi2 = g_atomic_pointer_or (&gi, 8);
@@ -1066,8 +1175,35 @@ index 8bc100f4e..53b0d703e 100644
  
    g_assert_cmpint (g_atomic_int_get (csp), ==, s);
    g_assert_true (g_atomic_pointer_get (cspp) == csp);
+diff --git glib/tests/gvariant.c glib/tests/gvariant.c
+index 0110f2664..5f1d0128c 100644
+--- glib/tests/gvariant.c
++++ glib/tests/gvariant.c
+@@ -18,6 +18,10 @@
+ #include <stdlib.h>
+ #include <glib.h>
+ 
++#if defined(__CHERI_PURE_CAPABILITY__)
++#include <stdalign.h>
++#endif // defined(__CHERI_PURE_CAPABILITY__)
++
+ #define BASIC "bynqiuxthdsog?"
+ #define N_BASIC (G_N_ELEMENTS (BASIC) - 1)
+ 
+@@ -1333,7 +1337,11 @@ align_malloc (gsize size)
+   gpointer mem;
+ 
+ #ifdef HAVE_POSIX_MEMALIGN
++#if defined(__CHERI_PURE_CAPABILITY__)
++  if (posix_memalign (&mem, alignof(max_align_t), size))
++#else // defined(__CHERI_PURE_CAPABILITY__)
+   if (posix_memalign (&mem, 8, size))
++#endif // defined(__CHERI_PURE_CAPABILITY__)
+     g_error ("posix_memalign failed");
+ #else
+   /* NOTE: there may be platforms that lack posix_memalign() and also
 diff --git glib/tests/once.c glib/tests/once.c
-index ea521c05b..63eb88fc0 100644
+index ea521c05b..d555cbde9 100644
 --- glib/tests/once.c
 +++ glib/tests/once.c
 @@ -128,7 +128,7 @@ test_once_multi_threaded (void)
@@ -1075,7 +1211,7 @@ index ea521c05b..63eb88fc0 100644
  test_once_init_single_threaded (void)
  {
 -  static gsize init = 0;
-+  static gintptr init = 0;
++  static guintptr init = 0;
  
    g_test_summary ("Test g_once_init_{enter,leave}() usage from a single thread");
  
@@ -1084,10 +1220,31 @@ index ea521c05b..63eb88fc0 100644
  init_shared (void)
  {
 -  static gsize init = 0;
-+  static gintptr init = 0;
++  static guintptr init = 0;
  
    if (g_once_init_enter (&init))
      {
+diff --git glib/tests/slice-concurrent.c glib/tests/slice-concurrent.c
+index 4551e20dc..b3f0a16e8 100644
+--- glib/tests/slice-concurrent.c
++++ glib/tests/slice-concurrent.c
+@@ -40,6 +40,7 @@ static void *
+ thread_func (void *arg)
+ {
+   int i;
++  unsigned int seed = time(NULL);
+   struct ThreadData *td = arg;
+ 
+   for (i = 0; i < N_ALLOCS; i++)
+@@ -55,7 +56,7 @@ thread_func (void *arg)
+       mem = g_slice_alloc (bytes);
+ 
+       for (f = 0; f < bytes; f++)
+-        mem[f] = rand();
++        mem[f] = rand_r(&seed);
+ 
+       /* associate block with random thread */
+       t = rand() % N_THREADS;
 diff --git glib/tests/spawn-path-search.c glib/tests/spawn-path-search.c
 index 5008fc960..b98c5d63a 100644
 --- glib/tests/spawn-path-search.c
@@ -1101,7 +1258,7 @@ index 5008fc960..b98c5d63a 100644
    long_dir = g_test_build_filename (G_TEST_BUILT, "path-test-subdir", placeholder, NULL);
    long_path = g_strjoin (G_SEARCHPATH_SEPARATOR_S, subdir, long_dir, NULL);
 diff --git glib/tests/utils.c glib/tests/utils.c
-index abfe2aca6..8e6195ac4 100644
+index 11fed555a..845f2ff39 100644
 --- glib/tests/utils.c
 +++ glib/tests/utils.c
 @@ -944,10 +944,10 @@ test_aligned_mem (void)
@@ -1118,7 +1275,7 @@ index abfe2aca6..8e6195ac4 100644
  
    a = g_aligned_alloc (16, 0, 8);
 diff --git gobject/gatomicarray.c gobject/gatomicarray.c
-index 43111e8c7..454d90e9d 100644
+index 43111e8c7..3c706582b 100644
 --- gobject/gatomicarray.c
 +++ gobject/gatomicarray.c
 @@ -74,9 +74,9 @@ freelist_alloc (gsize size, gboolean reuse)
@@ -1126,15 +1283,15 @@ index 43111e8c7..454d90e9d 100644
      }
  
 -  real_size = sizeof (gsize) + MAX (size, sizeof (FreeListNode));
-+  real_size = MAX(sizeof (gsize),sizeof(gintptr)) + MAX (size, sizeof (FreeListNode));
++  real_size = sizeof (guintptr) + MAX (size, sizeof (FreeListNode));
    mem = g_slice_alloc (real_size);
 -  mem = ((char *) mem) + sizeof (gsize);
-+  mem = ((char *) mem) + MAX(sizeof (gsize), sizeof(gintptr));
++  mem = ((char *) mem) + sizeof (guintptr);
    G_ATOMIC_ARRAY_DATA_SIZE (mem) = size;
  
  #if ENABLE_VALGRIND
 diff --git gobject/gatomicarray.h gobject/gatomicarray.h
-index 89043c5e4..18f6c344c 100644
+index 89043c5e4..c5a719972 100644
 --- gobject/gatomicarray.h
 +++ gobject/gatomicarray.h
 @@ -25,7 +25,7 @@
@@ -1142,12 +1299,12 @@ index 89043c5e4..18f6c344c 100644
  G_BEGIN_DECLS
  
 -#define G_ATOMIC_ARRAY_DATA_SIZE(mem) (*((gsize *) (mem) - 1))
-+#define G_ATOMIC_ARRAY_DATA_SIZE(mem) (*(gsize *)((gintptr) mem - MAX(sizeof(gsize), sizeof(gintptr)))) 
++#define G_ATOMIC_ARRAY_DATA_SIZE(mem) (*(gsize *)((guintptr) mem - MAX(sizeof(gsize), sizeof(gintptr)))) 
  
  typedef struct _GAtomicArray GAtomicArray;
  struct _GAtomicArray {
 diff --git gobject/gbinding.c gobject/gbinding.c
-index a0b5de102..032bad282 100644
+index a0b5de102..cfa6b1168 100644
 --- gobject/gbinding.c
 +++ gobject/gbinding.c
 @@ -121,7 +121,7 @@
@@ -1155,12 +1312,12 @@ index a0b5de102..032bad282 100644
  g_binding_flags_get_type (void)
  {
 -  static gsize static_g_define_type_id = 0;
-+  static gintptr static_g_define_type_id = 0;
++  static guintptr static_g_define_type_id = 0;
  
    if (g_once_init_enter (&static_g_define_type_id))
      {
 diff --git gobject/gboxed.c gobject/gboxed.c
-index 4a2699257..896aff3d5 100644
+index 4a2699257..07ae9af85 100644
 --- gobject/gboxed.c
 +++ gobject/gboxed.c
 @@ -182,7 +182,7 @@ G_DEFINE_BOXED_TYPE (GPatternSpec, g_pattern_spec, g_pattern_spec_copy, g_patter
@@ -1168,12 +1325,12 @@ index 4a2699257..896aff3d5 100644
  g_strv_get_type (void)
  {
 -  static gsize static_g_define_type_id = 0;
-+  static gintptr static_g_define_type_id = 0;
++  static guintptr static_g_define_type_id = 0;
  
    if (g_once_init_enter (&static_g_define_type_id))
      {
 diff --git gobject/gclosure.c gobject/gclosure.c
-index 85002a2f5..c66698b2f 100644
+index 85002a2f5..a88ee2150 100644
 --- gobject/gclosure.c
 +++ gobject/gclosure.c
 @@ -1171,7 +1171,7 @@ g_signal_type_cclosure_new (GType    itype,
@@ -1181,12 +1338,12 @@ index 85002a2f5..c66698b2f 100644
    g_return_val_if_fail (struct_offset >= sizeof (GTypeClass), NULL);
    
 -  closure = g_closure_new_simple (sizeof (GClosure), (gpointer) itype);
-+  closure = g_closure_new_simple (sizeof (GClosure), (gpointer) (gintptr) itype);
++  closure = g_closure_new_simple (sizeof (GClosure), (gpointer) (guintptr) itype);
    if (G_TYPE_IS_INTERFACE (itype))
      {
        g_closure_set_meta_marshal (closure, GUINT_TO_POINTER (struct_offset), g_type_iface_meta_marshal);
 diff --git gobject/glib-enumtypes.c.template gobject/glib-enumtypes.c.template
-index 42f9c341f..cf9cd5776 100644
+index 42f9c341f..4967e37b0 100644
 --- gobject/glib-enumtypes.c.template
 +++ gobject/glib-enumtypes.c.template
 @@ -22,7 +22,7 @@ G_GNUC_END_IGNORE_DEPRECATIONS
@@ -1194,12 +1351,12 @@ index 42f9c341f..cf9cd5776 100644
  @enum_name@_get_type (void)
  {
 -  static gsize static_g_define_type_id = 0;
-+  static gintptr static_g_define_type_id = 0;
++  static guintptr static_g_define_type_id = 0;
  
    if (g_once_init_enter (&static_g_define_type_id))
      {
 diff --git gobject/gobject.c gobject/gobject.c
-index d33d8e5b0..9f10567d6 100644
+index d33d8e5b0..5677d82b9 100644
 --- gobject/gobject.c
 +++ gobject/gobject.c
 @@ -3190,13 +3190,13 @@ object_floating_flag_handler (GObject        *object,
@@ -1207,19 +1364,19 @@ index d33d8e5b0..9f10567d6 100644
          oldvalue = g_atomic_pointer_get (&object->qdata);
        while (!g_atomic_pointer_compare_and_exchange ((void**) &object->qdata, oldvalue,
 -                                                     (gpointer) ((gsize) oldvalue | OBJECT_FLOATING_FLAG)));
-+                                                     (gpointer) ((gintptr) oldvalue | OBJECT_FLOATING_FLAG)));
++                                                     (gpointer) ((guintptr) oldvalue | OBJECT_FLOATING_FLAG)));
        return (gsize) oldvalue & OBJECT_FLOATING_FLAG;
      case -1:    /* sink if possible */
        do
          oldvalue = g_atomic_pointer_get (&object->qdata);
        while (!g_atomic_pointer_compare_and_exchange ((void**) &object->qdata, oldvalue,
 -                                                     (gpointer) ((gsize) oldvalue & ~(gsize) OBJECT_FLOATING_FLAG)));
-+                                                     (gpointer) ((gintptr) oldvalue & ~(gintptr) OBJECT_FLOATING_FLAG)));
++                                                     (gpointer) ((guintptr) oldvalue & ~(gsize) OBJECT_FLOATING_FLAG)));
        return (gsize) oldvalue & OBJECT_FLOATING_FLAG;
      default:    /* check floating */
        return 0 != ((gsize) g_atomic_pointer_get (&object->qdata) & OBJECT_FLOATING_FLAG);
 diff --git gobject/gparam.c gobject/gparam.c
-index e9d9eacb0..b23ab88a4 100644
+index e9d9eacb0..77998eebe 100644
 --- gobject/gparam.c
 +++ gobject/gparam.c
 @@ -1183,7 +1183,7 @@ g_param_spec_pool_list_owned (GParamSpecPool *pool,
@@ -1227,7 +1384,7 @@ index e9d9eacb0..b23ab88a4 100644
    g_mutex_lock (&pool->mutex);
    data[0] = NULL;
 -  data[1] = (gpointer) owner_type;
-+  data[1] = (gpointer) (gintptr) owner_type;
++  data[1] = (gpointer) (guintptr) owner_type;
    g_hash_table_foreach (pool->hash_table, pool_list, &data);
    g_mutex_unlock (&pool->mutex);
  
@@ -1236,24 +1393,51 @@ index e9d9eacb0..b23ab88a4 100644
    slists = g_new0 (GSList*, d);
    data[0] = slists;
 -  data[1] = (gpointer) owner_type;
-+  data[1] = (gpointer) (gintptr) owner_type;
++  data[1] = (gpointer) (guintptr) owner_type;
    data[2] = pool->hash_table;
    data[3] = &n_pspecs;
  
 diff --git gobject/gparamspecs.c gobject/gparamspecs.c
-index d4ad8c21a..c53819482 100644
+index d4ad8c21a..f89959cb1 100644
 --- gobject/gparamspecs.c
 +++ gobject/gparamspecs.c
-@@ -1084,6 +1084,7 @@ param_gtype_validate (GParamSpec *pspec,
+@@ -1075,7 +1075,7 @@ param_gtype_set_default (GParamSpec *pspec,
  {
    GParamSpecGType *tspec = G_PARAM_SPEC_GTYPE (pspec);
-   GType gtype = GPOINTER_TO_SIZE (value->data[0].v_pointer);
-+  GType gtype = (gintptr) value->data[0].v_pointer;
+ 
+-  value->data[0].v_pointer = GSIZE_TO_POINTER (tspec->is_a_type);
++  value->data[0].v_pointer = GUINTPTR_TO_GPOINTER (tspec->is_a_type);
+ }
+ 
+ static gboolean
+@@ -1083,12 +1083,12 @@ param_gtype_validate (GParamSpec *pspec,
+ 		      GValue     *value)
+ {
+   GParamSpecGType *tspec = G_PARAM_SPEC_GTYPE (pspec);
+-  GType gtype = GPOINTER_TO_SIZE (value->data[0].v_pointer);
++  GType gtype = GPOINTER_TO_GUINTPTR(value->data[0].v_pointer);
    guint changed = 0;
    
    if (tspec->is_a_type != G_TYPE_NONE && !g_type_is_a (gtype, tspec->is_a_type))
+     {
+-      value->data[0].v_pointer = GSIZE_TO_POINTER (tspec->is_a_type);
++      value->data[0].v_pointer = GUINTPTR_TO_GPOINTER (tspec->is_a_type);
+       changed++;
+     }
+   
+@@ -1100,8 +1100,8 @@ param_gtype_values_cmp (GParamSpec   *pspec,
+ 			const GValue *value1,
+ 			const GValue *value2)
+ {
+-  GType p1 = GPOINTER_TO_SIZE (value1->data[0].v_pointer);
+-  GType p2 = GPOINTER_TO_SIZE (value2->data[0].v_pointer);
++  GType p1 = GPOINTER_TO_GUINTPTR (value1->data[0].v_pointer);
++  GType p2 = GPOINTER_TO_GUINTPTR (value2->data[0].v_pointer);
+ 
+   /* not much to compare here, try to at least provide stable lesser/greater result */
+ 
 diff --git gobject/gsourceclosure.c gobject/gsourceclosure.c
-index d1b1ee4b3..cf6d24bd3 100644
+index d1b1ee4b3..38ab595a1 100644
 --- gobject/gsourceclosure.c
 +++ gobject/gsourceclosure.c
 @@ -34,7 +34,7 @@ g_io_condition_get_type (void)
@@ -1261,7 +1445,7 @@ index d1b1ee4b3..cf6d24bd3 100644
    static GType etype = 0;
  
 -  if (g_once_init_enter (&etype))
-+  if (g_once_init_enter ((gintptr) etype))
++  if (g_once_init_enter ((guintptr) &etype))
      {
        static const GFlagsValue values[] = {
  	{ G_IO_IN,   "G_IO_IN",   "in" },
@@ -1270,12 +1454,12 @@ index d1b1ee4b3..cf6d24bd3 100644
        };
        GType type_id = g_flags_register_static ("GIOCondition", values);
 -      g_once_init_leave (&etype, type_id);
-+      g_once_init_leave (&etype, (gintptr) type_id);
++      g_once_init_leave (&etype, (guintptr) type_id);
      }
    return etype;
  }
 diff --git gobject/gtype.c gobject/gtype.c
-index cf213b760..d113435af 100644
+index cf213b760..446b3b262 100644
 --- gobject/gtype.c
 +++ gobject/gtype.c
 @@ -517,7 +517,7 @@ type_node_any_new_W (TypeNode             *pnode,
@@ -1283,27 +1467,27 @@ index cf213b760..d113435af 100644
    g_hash_table_insert (static_type_nodes_ht,
  		       (gpointer) g_quark_to_string (node->qname),
 -		       (gpointer) type);
-+		       (gpointer) (gintptr) type);
++		       (gpointer) (guintptr) type);
  
    g_atomic_int_inc ((gint *)&type_registration_serial);
  
 diff --git gobject/gtype.h gobject/gtype.h
-index 2aa5e1316..f0d0ea45f 100644
+index 2aa5e1316..70be4a094 100644
 --- gobject/gtype.h
 +++ gobject/gtype.h
 @@ -396,11 +396,15 @@ G_BEGIN_DECLS
   * A numerical value which represents the unique identifier of a registered
   * type.
   */
-+#if 1
-+typedef gintptr                         GType;
++#if defined(__CHERI_PURE_CAPABILITY__)
++typedef guintptr                         GType;
 +#else
  #if     GLIB_SIZEOF_SIZE_T != GLIB_SIZEOF_LONG || !defined __cplusplus
  typedef gsize                           GType;
  #else   /* for historic reasons, C++ links against gulong GTypes */
  typedef gulong                          GType;
  #endif
-+#endif
++#endif // defined(__CHERI_PURE_CAPABILITY__)
  typedef struct _GValue                  GValue;
  typedef union  _GTypeCValue             GTypeCValue;
  typedef struct _GTypePlugin             GTypePlugin;
@@ -1312,7 +1496,7 @@ index 2aa5e1316..f0d0ea45f 100644
   * gtk_gadget_get_type (void)
   * {
 - *   static gsize static_g_define_type_id = 0;
-+ *   static gintptr static_g_define_type_id = 0;
++ *   static guintptr static_g_define_type_id = 0;
   *   if (g_once_init_enter (&static_g_define_type_id))
   *     {
   *       GType g_define_type_id =
@@ -1321,7 +1505,7 @@ index 2aa5e1316..f0d0ea45f 100644
  type_name##_get_type (void) \
  { \
 -  static gsize static_g_define_type_id = 0;
-+  static gintptr static_g_define_type_id = 0;
++  static guintptr static_g_define_type_id = 0;
    /* Prelude goes here */
  
  /* Added for _G_DEFINE_TYPE_EXTENDED_WITH_PRELUDE */
@@ -1330,7 +1514,7 @@ index 2aa5e1316..f0d0ea45f 100644
  type_name##_get_type (void) \
  { \
 -  static gsize static_g_define_type_id = 0; \
-+  static gintptr static_g_define_type_id = 0; \
++  static guintptr static_g_define_type_id = 0; \
    if (g_once_init_enter (&static_g_define_type_id)) \
      { \
        GType g_define_type_id = \
@@ -1339,7 +1523,7 @@ index 2aa5e1316..f0d0ea45f 100644
  type_name##_get_type (void) \
  { \
 -  static gsize static_g_define_type_id = 0; \
-+  static gintptr static_g_define_type_id = 0; \
++  static guintptr static_g_define_type_id = 0; \
    if (g_once_init_enter (&static_g_define_type_id)) \
      { \
        GType g_define_type_id = type_name##_get_type_once (); \
@@ -1348,7 +1532,7 @@ index 2aa5e1316..f0d0ea45f 100644
  type_name##_get_type (void) \
  { \
 -  static gsize static_g_define_type_id = 0; \
-+  static gintptr static_g_define_type_id = 0; \
++  static guintptr static_g_define_type_id = 0; \
    if (g_once_init_enter (&static_g_define_type_id)) \
      { \
        GType g_define_type_id = type_name##_get_type_once (); \
@@ -1357,12 +1541,34 @@ index 2aa5e1316..f0d0ea45f 100644
  type_name##_get_type (void) \
  { \
 -  static gsize static_g_define_type_id = 0; \
-+  static gintptr static_g_define_type_id = 0; \
++  static guintptr static_g_define_type_id = 0; \
    if (g_once_init_enter (&static_g_define_type_id)) \
      { \
        GType g_define_type_id = type_name##_get_type_once (); \
+diff --git gobject/gvaluetypes.c gobject/gvaluetypes.c
+index 60d7b6647..481f10c9d 100644
+--- gobject/gvaluetypes.c
++++ gobject/gvaluetypes.c
+@@ -1210,7 +1210,7 @@ g_value_set_gtype (GValue *value,
+ {
+   g_return_if_fail (G_VALUE_HOLDS_GTYPE (value));
+ 
+-  value->data[0].v_pointer = GSIZE_TO_POINTER (v_gtype);
++  value->data[0].v_pointer = GUINTPTR_TO_GPOINTER (v_gtype);
+   
+ }
+ 
+@@ -1229,7 +1229,7 @@ g_value_get_gtype (const GValue *value)
+ {
+   g_return_val_if_fail (G_VALUE_HOLDS_GTYPE (value), 0);
+ 
+-  return GPOINTER_TO_SIZE (value->data[0].v_pointer);
++  return GPOINTER_TO_GUINTPTR (value->data[0].v_pointer);
+ }
+ 
+ /**
 diff --git gobject/tests/signals.c gobject/tests/signals.c
-index ea9a778bf..464668697 100644
+index ea9a778bf..19b66485f 100644
 --- gobject/tests/signals.c
 +++ gobject/tests/signals.c
 @@ -66,7 +66,7 @@ custom_marshal_VOID__INVOCATIONHINT (GClosure     *closure,
@@ -1370,7 +1576,7 @@ index ea9a778bf..464668697 100644
  test_enum_get_type (void)
  {
 -  static gsize static_g_define_type_id = 0;
-+  static gintptr static_g_define_type_id = 0;
++  static guintptr static_g_define_type_id = 0;
  
    if (g_once_init_enter (&static_g_define_type_id))
      {
@@ -1379,38 +1585,70 @@ index ea9a778bf..464668697 100644
  test_unsigned_enum_get_type (void)
  {
 -  static gsize static_g_define_type_id = 0;
-+  static gintptr static_g_define_type_id = 0;
++  static guintptr static_g_define_type_id = 0;
  
    if (g_once_init_enter (&static_g_define_type_id))
      {
 diff --git meson.build meson.build
-index f3968c581..ddc6b930e 100644
+index 48fdfe864..c5f474ce5 100644
 --- meson.build
 +++ meson.build
-@@ -1617,6 +1617,13 @@ elif voidp_size == long_long_size
+@@ -1598,6 +1598,7 @@ endif
+ 
+ if voidp_size == int_size
+   glibconfig_conf.set('glib_intptr_type_define', 'int')
++  glibconfig_conf.set('glib_uintptr_type_define', 'unsigned int')
+   glibconfig_conf.set_quoted('gintptr_modifier', '')
+   glibconfig_conf.set_quoted('gintptr_format', 'i')
+   glibconfig_conf.set_quoted('guintptr_format', 'u')
+@@ -1605,6 +1606,7 @@ if voidp_size == int_size
+   glibconfig_conf.set('glib_gpui_cast', '(guint)')
+ elif voidp_size == long_size
+   glibconfig_conf.set('glib_intptr_type_define', 'long')
++  glibconfig_conf.set('glib_uintptr_type_define', 'unsigned long')
+   glibconfig_conf.set_quoted('gintptr_modifier', 'l')
+   glibconfig_conf.set_quoted('gintptr_format', 'li')
+   glibconfig_conf.set_quoted('guintptr_format', 'lu')
+@@ -1612,11 +1614,28 @@ elif voidp_size == long_size
+   glibconfig_conf.set('glib_gpui_cast', '(gulong)')
+ elif voidp_size == long_long_size
+   glibconfig_conf.set('glib_intptr_type_define', 'long long')
++  glibconfig_conf.set('glib_uintptr_type_define', 'unsigned long long')
+   glibconfig_conf.set_quoted('gintptr_modifier', int64_m)
+   glibconfig_conf.set_quoted('gintptr_format', int64_m + 'i')
    glibconfig_conf.set_quoted('guintptr_format', int64_m + 'u')
    glibconfig_conf.set('glib_gpi_cast', '(gint64)')
    glibconfig_conf.set('glib_gpui_cast', '(guint64)')
-+elif voidp_size == 16 
++# elif voidp_size == 16 
++elif cc.compiles('''#ifndef __CHERI_PURE_CAPABILITY__
++                    #error "Not purecap CHERI"
++                    #endif
++                    int main (void)
++                    {
++                      return 0;
++                    }''',
++                    name : 'targetting pure-capability CHERI')
 +  glibconfig_conf.set('glib_intptr_type_define', 'intptr_t')
++  glibconfig_conf.set('glib_uintptr_type_define', 'uintptr_t')
 +  glibconfig_conf.set_quoted('gintptr_modifier', 'P')
 +  glibconfig_conf.set_quoted('gintptr_format', 'Pi')
 +  glibconfig_conf.set_quoted('guintptr_format', 'Pu')
-+  glibconfig_conf.set('glib_gpi_cast', '(intptr_t)')
-+  glibconfig_conf.set('glib_gpui_cast', '(uintptr_t)')
++  glibconfig_conf.set('glib_gpi_cast', '(intptr_t)') # TODO
++  glibconfig_conf.set('glib_gpui_cast', '(uintptr_t)') # TODO
  else
    error('Could not determine size of void *')
  endif
-@@ -1882,7 +1889,6 @@ else
-     error('GLib must be built with -march=i486 or later.')
-   endif
- endif
--glibconfig_conf.set('G_ATOMIC_LOCK_FREE', have_atomic_lock_free)
+@@ -2374,6 +2393,8 @@ endif
+ test_timeout = 60
+ test_timeout_slow = 180
  
- # === Threads ===
- 
++libutil = [cc.find_library('util', required : true)]
++
+ pkg = import('pkgconfig')
+ windows = import('windows')
+ subdir('glib')
 diff --git tests/gobject/performance-threaded.c tests/gobject/performance-threaded.c
-index af8cc79b0..f47711217 100644
+index af8cc79b0..c00a3f905 100644
 --- tests/gobject/performance-threaded.c
 +++ tests/gobject/performance-threaded.c
 @@ -52,7 +52,7 @@ static GType liststore_interfaces[6];
@@ -1418,12 +1656,12 @@ index af8cc79b0..f47711217 100644
  register_types (void)
  {
 -  static gsize inited = 0;
-+  static gintptr inited = 0;
++  static guintptr inited = 0;
    if (g_once_init_enter (&inited))
      {
        liststore_interfaces[0] = simple_register_class ("GtkBuildable", G_TYPE_INTERFACE, 0);
 diff --git tests/onceinit.c tests/onceinit.c
-index 4f30739ca..ad555d031 100644
+index 4f30739ca..6e648f4f6 100644
 --- tests/onceinit.c
 +++ tests/onceinit.c
 @@ -58,7 +58,7 @@ assert_singleton_execution3 (void)
@@ -1431,7 +1669,7 @@ index 4f30739ca..ad555d031 100644
  initializer1 (void)
  {
 -  static gsize initialized = 0;
-+  static gintptr initialized = 0;
++  static guintptr initialized = 0;
    if (g_once_init_enter (&initialized))
      {
        gsize initval = 42;
@@ -1440,7 +1678,7 @@ index 4f30739ca..ad555d031 100644
  initializer2 (void)
  {
 -  static gsize initialized = 0;
-+  static gintptr initialized = 0;
++  static guintptr initialized = 0;
    if (g_once_init_enter (&initialized))
      {
        void *pointer_value = &dummy_value;
@@ -1449,7 +1687,7 @@ index 4f30739ca..ad555d031 100644
  initializer3 (void)
  {
 -  static gsize initialized = 0;
-+  static gintptr initialized = 0;
++  static guintptr initialized = 0;
    if (g_once_init_enter (&initialized))
      {
        gsize initval = 42;
@@ -1458,7 +1696,7 @@ index 4f30739ca..ad555d031 100644
        test_initializer_##N (void)                       \
        {                                                 \
 -        static gsize initialized = 0;                   \
-+        static gintptr initialized = 0;                   \
++        static guintptr initialized = 0;                   \
          if (g_once_init_enter (&initialized))           \
            {                                             \
              g_free (g_strdup_printf ("cpuhog%5d", 1));  \
